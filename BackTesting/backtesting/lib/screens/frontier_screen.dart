@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:backtesting/screens/welcome_screen.dart';
 
 class FrontierScreen extends StatefulWidget {
@@ -15,14 +17,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA'];
-  List<Map<String, dynamic>> savedPortfolios = [];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
   
   bool isLoading = false;
-  bool showSimulation = false; // Flag to maximize chart area
+  bool showSimulation = false;
 
   // --- API LOGIC ---
   Future<void> calculateFrontier() async {
@@ -35,7 +36,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     
     setState(() {
       isLoading = true;
-      showSimulation = true; // Expand chart area immediately
+      showSimulation = true;
     });
 
     final tickerString = selectedTickers.join(',');
@@ -43,30 +44,29 @@ class _FrontierScreenState extends State<FrontierScreen> {
     
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 45));
-     // Inside your calculateFrontier function, after data is decoded:
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      
-      List<ScatterSpot> rawSpots = (data['scatter_points'] as List).map((p) {
-        return ScatterSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
-      }).toList();
-
-      // Sort by Y (Returns) and remove the top 5% extreme outliers
-      rawSpots.sort((a, b) => a.y.compareTo(b.y));
-      int limit = (rawSpots.length * 0.95).toInt();
-      List<ScatterSpot> filteredSpots = rawSpots.sublist(0, limit);
-
-      setState(() {
-        scatterSpots = filteredSpots.map((s) => ScatterSpot(
-          s.x, s.y,
-          dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
-        )).toList();
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         
-        maxSharpe = data['max_sharpe'];
-        minVol = data['min_vol'];
-        isLoading = false;
-      });
-    }
+        List<ScatterSpot> rawSpots = (data['scatter_points'] as List).map((p) {
+          return ScatterSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
+        }).toList();
+
+        // Sort by Y and remove top 5% outliers for better visualization
+        rawSpots.sort((a, b) => a.y.compareTo(b.y));
+        int limit = (rawSpots.length * 0.95).toInt();
+        List<ScatterSpot> filteredSpots = rawSpots.sublist(0, limit);
+
+        setState(() {
+          scatterSpots = filteredSpots.map((s) => ScatterSpot(
+            s.x, s.y,
+            dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
+          )).toList();
+          
+          maxSharpe = data['max_sharpe'];
+          minVol = data['min_vol'];
+          isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -76,16 +76,51 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
   }
 
-  void savePortfolio() {
-    if (maxSharpe != null) {
-      setState(() {
-        savedPortfolios.add({
-          'tickers': List.from(selectedTickers),
-          'return': maxSharpe!['y'],
-          'weights': maxSharpe!['weights'],
-        });
+  // --- FIRESTORE PERSISTENCE ---
+  Future<void> saveBothPortfolios() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please log in to save portfolios.")),
+      );
+      return;
+    }
+
+    if (maxSharpe != null && minVol != null) {
+      final batch = FirebaseFirestore.instance.batch();
+      final userPortfoliosRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('saved_portfolios');
+
+      // 1. Max Sharpe Entry
+      batch.set(userPortfoliosRef.doc(), {
+        'type': 'Max Sharpe',
+        'tickers': List.from(selectedTickers),
+        'return': maxSharpe!['y'],
+        'weights': maxSharpe!['weights'],
+        'timestamp': FieldValue.serverTimestamp(),
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Portfolio Saved!")));
+
+      // 2. Min Risk Entry
+      batch.set(userPortfoliosRef.doc(), {
+        'type': 'Min Risk',
+        'tickers': List.from(selectedTickers),
+        'return': minVol!['y'],
+        'weights': minVol!['weights'],
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      try {
+        await batch.commit();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Both portfolios synced to Firestore!")),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Database Error: $e")),
+        );
+      }
     }
   }
 
@@ -120,7 +155,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
-  // --- VIEW 1: INPUT & CONFIGURATION ---
   Widget _buildInputView(bool isWide) {
     return Column(
       children: [
@@ -131,8 +165,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         Padding(
           padding: const EdgeInsets.all(24.0),
           child: SizedBox(
-            width: double.infinity,
-            height: 60,
+            width: double.infinity, height: 60,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -148,7 +181,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
-  // --- VIEW 2: FULL SCREEN RESULT ---
   Widget _buildSimulationView(bool isWide) {
     return Column(
       children: [
@@ -174,9 +206,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   label: const Text("Adjust Tickers"),
                 ),
                 ElevatedButton.icon(
-                  onPressed: savePortfolio,
-                  icon: const Icon(Icons.save),
-                  label: const Text("Save Optimal Portfolio"),
+                  onPressed: saveBothPortfolios,
+                  icon: const Icon(Icons.cloud_upload),
+                  label: const Text("Save Both to Cloud"),
                 ),
               ],
             ),
@@ -185,16 +217,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
-  // --- COMPONENT WIDGETS ---
-
   Widget _buildInputSection() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: TextField(
         controller: _tickerController,
         decoration: InputDecoration(
-          isDense: true,
-          labelText: "Add Ticker (e.g. NVDA, AMZN)",
+          isDense: true, labelText: "Add Ticker (e.g. NVDA, AMZN)",
           suffixIcon: IconButton(
             icon: const Icon(Icons.add_circle),
             onPressed: () {
@@ -218,8 +247,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: SingleChildScrollView(
         child: Wrap(
-          spacing: 8,
-          runSpacing: 4,
+          spacing: 8, runSpacing: 4,
           children: [
             ...selectedTickers.map((ticker) => Chip(
               visualDensity: VisualDensity.compact,
@@ -238,6 +266,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   Widget _buildChartSection() {
+    if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("No Data"));
     return isLoading 
       ? const Center(child: CircularProgressIndicator())
       : Column(
@@ -251,60 +280,44 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 padding: const EdgeInsets.only(right: 20, left: 10, top: 20, bottom: 10),
                 child: ScatterChart(
                   ScatterChartData(
-                    // 1. ADD PADDING TO AXES
-                    // This calculates the range of your data and adds a 5-10% buffer
                     minX: (scatterSpots.map((s) => s.x).reduce((a, b) => a < b ? a : b)) * 0.95,
                     maxX: (scatterSpots.map((s) => s.x).reduce((a, b) => a > b ? a : b)) * 1.05,
                     minY: (scatterSpots.map((s) => s.y).reduce((a, b) => a < b ? a : b)) * 0.95,
                     maxY: (scatterSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b)) * 1.05,
-
-                    // 2. DISABLE CLIPPING
-                    // Changing this to false allows the large dots to be fully visible even near the edge
-                    clipData: const FlClipData.none(), 
-
+                    clipData: const FlClipData.none(),
                     scatterSpots: [
                       ...scatterSpots,
                       if (maxSharpe != null)
                         ScatterSpot(
-                          (maxSharpe!['x'] as num).toDouble(), 
-                          (maxSharpe!['y'] as num).toDouble(),
+                          (maxSharpe!['x'] as num).toDouble(), (maxSharpe!['y'] as num).toDouble(),
                           dotPainter: FlDotCirclePainter(radius: 8, color: Colors.red, strokeWidth: 2, strokeColor: Colors.white),
                         ),
                       if (minVol != null)
                         ScatterSpot(
-                          (minVol!['x'] as num).toDouble(), 
-                          (minVol!['y'] as num).toDouble(),
+                          (minVol!['x'] as num).toDouble(), (minVol!['y'] as num).toDouble(),
                           dotPainter: FlDotCirclePainter(radius: 8, color: Colors.blue, strokeWidth: 2, strokeColor: Colors.white),
                         ),
                     ],
                     titlesData: FlTitlesData(
                       bottomTitles: AxisTitles(
                         sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 30,
-                          interval: 0.05,
-                          getTitlesWidget: (value, meta) {
-                            if (value == meta.min) return const SizedBox.shrink();
-                            return Text(value.toStringAsFixed(2), style: const TextStyle(fontSize: 10));
-                          },
+                          showTitles: true, reservedSize: 30, interval: 0.05,
+                          getTitlesWidget: (v, m) => v == m.min ? const SizedBox.shrink() : Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
                         ),
                       ),
                       leftTitles: AxisTitles(
                         sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 40,
-                          getTitlesWidget: (value, meta) => Text(value.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+                          showTitles: true, reservedSize: 40,
+                          getTitlesWidget: (v, m) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
                         ),
                       ),
                       topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                       rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     ),
                     gridData: FlGridData(
-                      show: true,
-                      horizontalInterval: 0.05,
-                      verticalInterval: 0.05,
-                      getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1),
-                      getDrawingVerticalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1),
+                      show: true, horizontalInterval: 0.05, verticalInterval: 0.05,
+                      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
+                      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
                     ),
                     borderData: FlBorderData(show: true, border: Border.all(color: Colors.black12)),
                   ),
@@ -341,23 +354,50 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   Widget _buildSavedPortfoliosSection() {
-    if (savedPortfolios.isEmpty) return const SizedBox.shrink();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const Center(child: Text("Log in to see saved portfolios"));
+
     return Expanded(
       child: Column(
         children: [
           const Divider(),
-          const Text("Saved Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text("My Cloud Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
           Expanded(
-            child: ListView.builder(
-              itemCount: savedPortfolios.length,
-              itemBuilder: (context, index) {
-                final port = savedPortfolios[index];
-                return ListTile(
-                  dense: true,
-                  title: Text(port['tickers'].join(', ')),
-                  subtitle: Text("Return: ${(port['return'] * 100).toStringAsFixed(1)}%"),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showWeightsDialog(context, port),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .collection('saved_portfolios')
+                  .orderBy('timestamp', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) return const Center(child: Text("No portfolios saved yet", style: TextStyle(fontSize: 12)));
+
+                return ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final bool isMaxSharpe = data['type'] == 'Max Sharpe';
+
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        isMaxSharpe ? Icons.trending_up : Icons.shield_outlined,
+                        color: isMaxSharpe ? Colors.red : Colors.blue,
+                        size: 20,
+                      ),
+                      title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
+                      subtitle: Text("Return: ${(data['return'] * 100).toStringAsFixed(1)}%"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: () => docs[index].reference.delete(),
+                      ),
+                      onTap: () => _showWeightsDialog(context, data),
+                    );
+                  },
                 );
               },
             ),
@@ -367,14 +407,14 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
-  void _showWeightsDialog(BuildContext context, Map<String, dynamic> port) {
+  void _showWeightsDialog(BuildContext context, Map<String, dynamic> data) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Optimal Weights"),
+        title: Text("${data['type']} Allocation"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: (port['weights'] as Map<String, dynamic>).entries.map((e) => 
+          children: (data['weights'] as Map<String, dynamic>).entries.map((e) => 
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4.0),
               child: Row(

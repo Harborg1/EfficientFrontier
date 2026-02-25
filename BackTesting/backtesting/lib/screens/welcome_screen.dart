@@ -1,3 +1,4 @@
+import 'package:backtesting/screens/saved_portfolios.dart';
 import 'package:flutter/material.dart';
 // 1. Add this import so the file knows what FrontierScreen is
 import 'package:backtesting/screens/frontier_screen.dart'; 
@@ -44,6 +45,19 @@ class WelcomeScreen extends StatelessWidget {
                 },
                 icon: const Icon(Icons.rocket_launch),
                 label: const Text("Get Started"),
+              ),
+                   OutlinedButton.icon(
+                onPressed: () {
+                  // 2. Replace the SnackBar with actual navigation
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SavedPortfoliosScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.save),
+                label: const Text("Saved portfolios "),
               ),
             ],
           ),
