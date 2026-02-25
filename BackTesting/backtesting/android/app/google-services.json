@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "644942500262",
+    "project_id": "backtesting-1a89a",
+    "storage_bucket": "backtesting-1a89a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:644942500262:android:4a117bf81bc56a2428ff67",
+        "android_client_info": {
+          "package_name": "com.example.backtesting"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyiqWL_3H-keVJPxcopqIn5V_RAWcaADA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
