@@ -47,8 +47,8 @@ def get_portfolio_data(tickers: str = ""):
     cov_annual = returns_daily.cov() * 252
     
     num_assets = len(selected)
-    num_portfolios = 10000
-    
+    num_portfolios = 3000
+
     # Optimization: Using vectorized operations where possible
     weights_matrix = np.random.random((num_portfolios, num_assets))
     weights_matrix /= np.sum(weights_matrix, axis=1)[:, np.newaxis]
