@@ -37,7 +37,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     setState(() => isLoading = true);
     
     // API URL - ensure your FastAPI server is running on port 8000
-    final url = Uri.parse('http://10.0.2.2:8000/optimize?tickers=AAPL,F,WMT,GOOG,TSLA');
+    final url = Uri.parse('https://efficientfrontier.onrender.com/optimize?tickers=AAPL,F,WMT,GOOG,TSLA');
     
     try {
       // OPTIMIZATION: Added a 15-second timeout to prevent infinite loading screens
