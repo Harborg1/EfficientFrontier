@@ -3,60 +3,88 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from typing import List
 
 app = FastAPI()
 
-# IMPORTANT: Allow Flutter Web to talk to this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your Flutter app's URL
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 1. Define your expanded universe (S&P 100, Tech, etc.)
+TICKER_UNIVERSE = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "BRK-B", "JPM", "V", 
+    "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC", "VZ", "KO", "PFE", 
+    "INTC", "CMCSA", "NFLX", "ADBE", "T", "ABT", "PEP", "XOM", "CSCO"
+]
+
 @app.get("/optimize")
-def get_portfolio_data(tickers: str = "AAPL,F,WMT,GOOG,TSLA"):
-    selected = tickers.split(",")
+def get_portfolio_data(tickers: str = ""):
+    # 2. Use user input if provided, otherwise default to a diverse selection
+    if not tickers:
+        selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "NFLX", "NVDA"]
+    else:
+        # Filter and validate input against the universe or just clean it
+        selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
+
+    # Limit to a reasonable number to prevent the free-tier server from timing out
+    selected = selected[:15] 
+
     # Fetch data
-    data = yf.download(selected, start='2020-01-01', end='2025-12-31')
+    data = yf.download(selected, start='2021-01-01', end='2025-12-31')
+    
+    if data.empty or 'Close' not in data:
+        return {"error": "Could not retrieve data for the specified tickers."}
+        
     table = data['Close']
     
     # Calculate returns and covariance
     returns_daily = table.pct_change().dropna()
-    returns_annual = returns_daily.mean() * 252 # Using 252 trading days
+    returns_annual = returns_daily.mean() * 252 
     cov_annual = returns_daily.cov() * 252
     
     num_assets = len(selected)
-    num_portfolios = 5000 
+    num_portfolios = 10000
     
-    results = np.zeros((3, num_portfolios))
-    port_data = []
-
-    for i in range(num_portfolios):
-        weights = np.random.random(num_assets)
-        weights /= np.sum(weights)
-        
-        portfolio_return = np.dot(weights, returns_annual)
-        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
-        
-        results[0,i] = portfolio_return
-        results[1,i] = portfolio_volatility
-        results[2,i] = results[0,i] / results[1,i] # Sharpe Ratio (assuming 0% Risk-Free Rate)
-        
-        port_data.append({"x": float(portfolio_volatility), "y": float(portfolio_return)})
+    # Optimization: Using vectorized operations where possible
+    weights_matrix = np.random.random((num_portfolios, num_assets))
+    weights_matrix /= np.sum(weights_matrix, axis=1)[:, np.newaxis]
+    
+    port_returns = np.dot(weights_matrix, returns_annual)
+    # Volatility calculation for all portfolios at once
+    port_vols = np.sqrt(np.diag(np.dot(weights_matrix, np.dot(cov_annual, weights_matrix.T))))
+    sharpe_ratios = port_returns / port_vols
+    
+    # Format scatter data for Flutter
+    port_data = [{"x": float(v), "y": float(r)} for v, r in zip(port_vols, port_returns)]
 
     # Find key indices
-    max_sharpe_idx = np.argmax(results[2])
-    min_vol_idx = np.argmin(results[1])
+    max_sharpe_idx = np.argmax(sharpe_ratios)
+    min_vol_idx = np.argmin(port_vols)
+
+    # Helper function to map weights
+    def get_weight_dict(idx):
+        return {selected[i]: round(float(weights_matrix[idx, i]), 4) for i in range(num_assets)}
 
     return {
         "scatter_points": port_data,
-        "min_vol": {
-            "x": float(results[1, min_vol_idx]), 
-            "y": float(results[0, min_vol_idx])
-        },
         "max_sharpe": {
-            "x": float(results[1, max_sharpe_idx]), 
-            "y": float(results[0, max_sharpe_idx])
+            "x": float(port_vols[max_sharpe_idx]), 
+            "y": float(port_returns[max_sharpe_idx]),
+            "sharpe": float(sharpe_ratios[max_sharpe_idx]),
+            "weights": get_weight_dict(max_sharpe_idx)
+        },
+        "min_vol": {
+            "x": float(port_vols[min_vol_idx]), 
+            "y": float(port_returns[min_vol_idx]),
+            "weights": get_weight_dict(min_vol_idx)
         }
     }
+
+# 3. New endpoint to give the Flutter app the list of available stocks
+@app.get("/tickers")
+def get_available_tickers():
+    return {"tickers": TICKER_UNIVERSE}    
