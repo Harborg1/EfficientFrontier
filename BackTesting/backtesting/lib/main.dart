@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:backtesting/firebase_options.dart'; 
 import 'package:backtesting/screens/register_screen.dart'; 
-import 'package:backtesting/screens/frontier_screen.dart'; // Import is correct now
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

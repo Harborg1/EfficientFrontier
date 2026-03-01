@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math'; // Added for min/max calculations
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -51,16 +52,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
           return ScatterSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
         }).toList();
 
-        // Sort by Y and remove top 5% outliers for better visualization
-        rawSpots.sort((a, b) => a.y.compareTo(b.y));
-        int limit = (rawSpots.length * 0.95).toInt();
-        List<ScatterSpot> filteredSpots = rawSpots.sublist(0, limit);
-
-        setState(() {
-          scatterSpots = filteredSpots.map((s) => ScatterSpot(
-            s.x, s.y,
-            dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
-          )).toList();
+        // CHANGED: Sort by X (volatility) and remove top 5% extreme risk outliers 
+        // to prevent the chart from stretching too far horizontally.
+          setState(() {
+    scatterSpots = rawSpots.map((s) => ScatterSpot(
+      s.x, s.y,
+      dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
+    )).toList();
           
           maxSharpe = data['max_sharpe'];
           minVol = data['min_vol'];
@@ -267,66 +265,114 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   Widget _buildChartSection() {
     if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("No Data"));
-    return isLoading 
-      ? const Center(child: CircularProgressIndicator())
-      : Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 16.0),
-              child: Text("Efficient Frontier Analysis", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 20, left: 10, top: 20, bottom: 10),
-                child: ScatterChart(
-                  ScatterChartData(
-                    minX: (scatterSpots.map((s) => s.x).reduce((a, b) => a < b ? a : b)) * 0.95,
-                    maxX: (scatterSpots.map((s) => s.x).reduce((a, b) => a > b ? a : b)) * 1.05,
-                    minY: (scatterSpots.map((s) => s.y).reduce((a, b) => a < b ? a : b)) * 0.95,
-                    maxY: (scatterSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b)) * 1.05,
-                    clipData: const FlClipData.none(),
-                    scatterSpots: [
-                      ...scatterSpots,
-                      if (maxSharpe != null)
-                        ScatterSpot(
-                          (maxSharpe!['x'] as num).toDouble(), (maxSharpe!['y'] as num).toDouble(),
-                          dotPainter: FlDotCirclePainter(radius: 8, color: Colors.red, strokeWidth: 2, strokeColor: Colors.white),
-                        ),
-                      if (minVol != null)
-                        ScatterSpot(
-                          (minVol!['x'] as num).toDouble(), (minVol!['y'] as num).toDouble(),
-                          dotPainter: FlDotCirclePainter(radius: 8, color: Colors.blue, strokeWidth: 2, strokeColor: Colors.white),
-                        ),
-                    ],
-                    titlesData: FlTitlesData(
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true, reservedSize: 30, interval: 0.05,
-                          getTitlesWidget: (v, m) => v == m.min ? const SizedBox.shrink() : Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
-                        ),
-                      ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true, reservedSize: 40,
-                          getTitlesWidget: (v, m) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
-                        ),
-                      ),
-                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    if (isLoading) return const Center(child: CircularProgressIndicator());
+
+    // 1. Calculate base bounds from the filtered scatter spots
+    double minXVal = scatterSpots.map((s) => s.x).reduce(min);
+    double maxXVal = scatterSpots.map((s) => s.x).reduce(max);
+    double minYVal = scatterSpots.map((s) => s.y).reduce(min);
+    double maxYVal = scatterSpots.map((s) => s.y).reduce(max);
+
+    // 2. Expand bounds to ensure Max Sharpe point is included
+    if (maxSharpe != null) {
+      minXVal = min(minXVal, (maxSharpe!['x'] as num).toDouble());
+      maxXVal = max(maxXVal, (maxSharpe!['x'] as num).toDouble());
+      minYVal = min(minYVal, (maxSharpe!['y'] as num).toDouble());
+      maxYVal = max(maxYVal, (maxSharpe!['y'] as num).toDouble());
+    }
+
+    // 3. Expand bounds to ensure Min Risk point is included
+    if (minVol != null) {
+      minXVal = min(minXVal, (minVol!['x'] as num).toDouble());
+      maxXVal = max(maxXVal, (minVol!['x'] as num).toDouble());
+      minYVal = min(minYVal, (minVol!['y'] as num).toDouble());
+      maxYVal = max(maxYVal, (minVol!['y'] as num).toDouble());
+    }
+
+    // 4. Calculate safe padding (handles negative stock returns properly)
+    double xPadding = (maxXVal - minXVal) * 0.05;
+    double yPadding = (maxYVal - minYVal) * 0.05;
+    
+    // Safety check just in case all points are perfectly identical
+    if (xPadding == 0) xPadding = 0.05;
+    if (yPadding == 0) yPadding = 0.05;
+
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 16.0),
+          child: Text("Efficient Frontier Analysis", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 20, left: 10, top: 20, bottom: 10),
+            child: ScatterChart(
+              ScatterChartData(
+                minX: minXVal - xPadding,
+                maxX: maxXVal + xPadding,
+                minY: minYVal - yPadding,
+                maxY: maxYVal + yPadding,
+                clipData: const FlClipData.none(),
+                scatterSpots: [
+                  ...scatterSpots,
+                  if (maxSharpe != null)
+                    ScatterSpot(
+                      (maxSharpe!['x'] as num).toDouble(), (maxSharpe!['y'] as num).toDouble(),
+                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.red, strokeWidth: 2, strokeColor: Colors.white),
                     ),
-                    gridData: FlGridData(
-                      show: true, horizontalInterval: 0.05, verticalInterval: 0.05,
-                      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
-                      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
+                  if (minVol != null)
+                    ScatterSpot(
+                      (minVol!['x'] as num).toDouble(), (minVol!['y'] as num).toDouble(),
+                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.blue, strokeWidth: 2, strokeColor: Colors.white),
                     ),
-                    borderData: FlBorderData(show: true, border: Border.all(color: Colors.black12)),
+                ],
+                titlesData: FlTitlesData(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true, 
+                      reservedSize: 30, 
+                      interval: 0.05,
+                      getTitlesWidget: (v, m) {
+                        // Hide the explicit min and max boundary labels to prevent overlap
+                        if (v == m.min || v == m.max) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+                        );
+                      },
+                    ),
                   ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true, 
+                      reservedSize: 40,
+                      getTitlesWidget: (v, m) {
+                        // Hide the explicit min and max boundary labels to prevent overlap
+                        if (v == m.min || v == m.max) {
+                          return const SizedBox.shrink();
+                        }
+                        return Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10));
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                 ),
+                gridData: FlGridData(
+                  show: true, horizontalInterval: 0.05, verticalInterval: 0.05,
+                  getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
+                  getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1)),
+                ),
+                borderData: FlBorderData(show: true, border: Border.all(color: Colors.black12)),
               ),
             ),
-            _buildLegend(),
-          ],
-        );
+          ),
+        ),
+        _buildLegend(),
+      ],
+    );
   }
 
   Widget _buildLegend() {
