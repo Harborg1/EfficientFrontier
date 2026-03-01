@@ -30,6 +30,8 @@ def get_portfolio_data(tickers: str = ""):
         selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
 
     selected = selected[:15] 
+
+    selected.sort()
     
     # Fetch data with auto_adjust=False to guarantee the 'Adj Close' column is generated
     data = yf.download(selected, start='2021-01-01', end='2025-12-31', auto_adjust=False)
