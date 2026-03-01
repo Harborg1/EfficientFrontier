@@ -30,14 +30,15 @@ def get_portfolio_data(tickers: str = ""):
         selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
 
     selected = selected[:15] 
-
-    # Fetch data
-    data = yf.download(selected, start='2021-01-01', end='2025-12-31')
     
-    if data.empty or 'Close' not in data:
+    # Fetch data with auto_adjust=False to guarantee the 'Adj Close' column is generated
+    data = yf.download(selected, start='2021-01-01', end='2025-12-31', auto_adjust=False)
+    
+    if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
         
-    table = data['Close'].dropna()
+    # Explicitly use the adjusted close to account for all splits and dividends
+    table = data['Adj Close'].dropna()
     
     # Calculate returns and covariance
     returns_daily = table.pct_change().dropna()
