@@ -34,10 +34,10 @@ def get_portfolio_data(tickers: str = ""):
     # Fetch data
     data = yf.download(selected, start='2021-01-01', end='2025-12-31')
     
-    if data.empty or 'Adj Close' not in data:
+    if data.empty or 'Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
         
-    table = data['Adj Close'].dropna()
+    table = data['Close'].dropna()
     
     # Calculate returns and covariance
     returns_daily = table.pct_change().dropna()
