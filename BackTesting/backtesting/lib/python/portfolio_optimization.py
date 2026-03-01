@@ -34,7 +34,7 @@ def get_portfolio_data(tickers: str = ""):
     selected.sort()
     
     # Fetch data with auto_adjust=False to guarantee the 'Adj Close' column is generated
-    data = yf.download(selected, start='2021-01-01', end='2025-12-31', auto_adjust=False)
+    data = yf.download(selected, start='2019-01-01', end='2025-12-31', auto_adjust=False)
     
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
