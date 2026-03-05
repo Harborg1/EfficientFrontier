@@ -328,6 +328,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 ],
                 titlesData: FlTitlesData(
                   bottomTitles: AxisTitles(
+                    axisNameWidget: const Text("Volatility (Risk)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    axisNameSize: 25,
                     sideTitles: SideTitles(
                       showTitles: true, 
                       reservedSize: 30, 
@@ -345,6 +347,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     ),
                   ),
                   leftTitles: AxisTitles(
+                    axisNameWidget: const Text("Expected Return", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    axisNameSize: 25,
                     sideTitles: SideTitles(
                       showTitles: true, 
                       reservedSize: 40,

@@ -1,14 +1,23 @@
+import 'package:backtesting/theme/theme.dart';
+import 'package:backtesting/theme/theme_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:backtesting/firebase_options.dart'; 
 import 'package:backtesting/screens/register_screen.dart'; 
-
+import 'package:provider/provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(const MyApp());
+
+  // WRAP THE APP HERE
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ThemeProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -16,15 +25,15 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Now this 'context' can see the ThemeProvider because it's wrapped above it
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return MaterialApp(
       title: 'Backtesting App',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      // To test the chart immediately, use FrontierScreen()
-      // To test the login flow, use RegisterScreen()
+      theme: lightMode, // Ensure these are imported from your theme.dart
+      darkTheme: darkMode,
+      themeMode: themeProvider.themeMode,
       home: const RegisterScreen(), 
     );
   }

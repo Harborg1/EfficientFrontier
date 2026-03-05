@@ -1,6 +1,7 @@
 import 'package:backtesting/screens/register_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:backtesting/screens/welcome_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 void main() {
   runApp(const LoginApp());
@@ -52,21 +53,56 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // Function called when the login button is pressed
-  // Function called when the login button is pressed
-  void _handleLogin() {
-    // Validate returns true if the form is valid, or false otherwise.
-    if (_formKey.currentState!.validate()) {
+  Future<void> _handleLogin() async {
+  // Validate the Form local state first
+  if (_formKey.currentState!.validate()) {
+    
+    // Show a loading indicator (Optional but recommended)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
 
-      // --- ADD THIS NAVIGATION BLOCK ---
-      // We use pushReplacement so the user can't hit the "Back" button to go back to the login screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const WelcomeScreen(),
-        ),
+    try {
+      // 2. Call Firebase to authenticate the user
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
       );
+
+      // 3. Close the loading indicator
+      if (mounted) Navigator.of(context).pop();
+
+      // 4. Navigate to the Welcome Screen
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      // 5. Handle Errors (Close loader first)
+      if (mounted) Navigator.of(context).pop();
+      
+      String message = 'An error occurred. Please try again.';
+      if (e.code == 'user-not-found') {
+        message = 'No user found for that email.';
+      } else if (e.code == 'wrong-password') {
+        message = 'Wrong password provided.';
+      } else if (e.code == 'invalid-email') {
+        message = 'The email address is badly formatted.';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      );
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+      print(e); // For debugging
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
