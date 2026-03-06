@@ -411,7 +411,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       child: Column(
         children: [
           const Divider(),
-          const Text("My Cloud Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text("My Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
