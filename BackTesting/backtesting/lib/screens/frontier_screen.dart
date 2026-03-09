@@ -18,6 +18,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA'];
+  double _selectedMaxWeight = 0.30;
+  int _selectedPortfolios = 5000;
+  String _selectedTimeframe = '5 Years';
+
+  final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
+  final List<int> _portfolioOptions = [1000, 5000, 10000, 20000];
+  final List<String> _timeframeOptions = ['1 Year', '3 Years', '5 Years', '10 Years'];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -34,14 +41,44 @@ class _FrontierScreenState extends State<FrontierScreen> {
       );
       return;
     }
-    
+    // Safety check: Ensure weights can sum to 100%
+    if (selectedTickers.length * _selectedMaxWeight < 1.0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Mathematical Error: ${selectedTickers.length} stocks capped at ${_selectedMaxWeight * 100}% cannot equal 100%. Add more stocks or increase max weight.")),
+      );
+      return;
+    }
+
     setState(() {
       isLoading = true;
       showSimulation = true;
     });
 
+    // Calculate dates based on timeframe
+    final endDate = DateTime.now();
+    DateTime startDate;
+    switch (_selectedTimeframe) {
+      case '1 Year': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+      case '3 Years': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+      case '10 Years': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+      case '5 Years':
+      default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
+    }
+
+    final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
+    final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
+
     final tickerString = selectedTickers.join(',');
-    final url = Uri.parse('https://efficientfrontier.onrender.com/optimize?tickers=$tickerString');
+    // UPDATED URL with new parameters
+    final url = Uri.parse(
+      'https://efficientfrontier.onrender.com/optimize'
+      '?tickers=$tickerString'
+      '&max_weight=$_selectedMaxWeight'
+      '&start_date=$startStr'
+      '&end_date=$endStr'
+      '&num_portfolios=$_selectedPortfolios'
+    );
+
     
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 45));
@@ -72,6 +109,42 @@ class _FrontierScreenState extends State<FrontierScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     }
+  }
+
+  Widget _buildSettingsRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<double>(
+              decoration: const InputDecoration(labelText: "Max Weight", border: OutlineInputBorder(), isDense: true),
+              value: _selectedMaxWeight,
+              items: _weightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
+              onChanged: (val) => setState(() => _selectedMaxWeight = val!),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: "Timeframe", border: OutlineInputBorder(), isDense: true),
+              value: _selectedTimeframe,
+              items: _timeframeOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+              onChanged: (val) => setState(() => _selectedTimeframe = val!),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              decoration: const InputDecoration(labelText: "Portfolios", border: OutlineInputBorder(), isDense: true),
+              value: _selectedPortfolios,
+              items: _portfolioOptions.map((p) => DropdownMenuItem(value: p, child: Text(p.toString()))).toList(),
+              onChanged: (val) => setState(() => _selectedPortfolios = val!),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- FIRESTORE PERSISTENCE ---
@@ -158,6 +231,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
       children: [
         _buildInputSection(),
         _buildTickerArea(),
+        const SizedBox(height: 15),
+        _buildSettingsRow(),
         const Spacer(),
         _buildSavedPortfoliosSection(),
         Padding(
@@ -241,23 +316,30 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   Widget _buildTickerArea() {
     return Container(
-      constraints: const BoxConstraints(maxHeight: 120),
+      // Slightly increased max height to give the chips more breathing room
+      constraints: const BoxConstraints(maxHeight: 140), 
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: SingleChildScrollView(
-        child: Wrap(
-          spacing: 8, runSpacing: 4,
-          children: [
-            ...selectedTickers.map((ticker) => Chip(
-              visualDensity: VisualDensity.compact,
-              label: Text(ticker, style: const TextStyle(fontSize: 12)),
-              onDeleted: () => setState(() => selectedTickers.remove(ticker)),
-            )),
-            if (selectedTickers.isNotEmpty)
-              ActionChip(
-                label: const Text("Clear All", style: TextStyle(color: Colors.red, fontSize: 12)),
-                onPressed: () => setState(() => selectedTickers.clear()),
-              ),
-          ],
+        child: Padding(
+          // Added bottom padding so the scroll view doesn't clip the bottom edges
+          padding: const EdgeInsets.only(bottom: 8.0), 
+          child: Wrap(
+            spacing: 8, runSpacing: 4,
+            children: [
+              ...selectedTickers.map((ticker) => Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(ticker, style: const TextStyle(fontSize: 12)),
+                onDeleted: () => setState(() => selectedTickers.remove(ticker)),
+              )),
+              if (selectedTickers.isNotEmpty)
+                ActionChip(
+                  // Added compact visual density here to match the other chips!
+                  visualDensity: VisualDensity.compact, 
+                  label: const Text("Clear All", style: TextStyle(color: Colors.red, fontSize: 12)),
+                  onPressed: () => setState(() => selectedTickers.clear()),
+                ),
+            ],
+          ),
         ),
       ),
     );

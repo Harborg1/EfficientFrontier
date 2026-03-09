@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import scipy.optimize as sco # <-- New Import
+import scipy.optimize as sco 
 from typing import List
 
 app = FastAPI()
@@ -23,18 +23,30 @@ TICKER_UNIVERSE = [
 ]
 
 @app.get("/optimize")
-def get_portfolio_data(tickers: str = ""):
+def get_portfolio_data(
+    tickers: str = "", 
+    max_weight: float = 0.30,            # <-- Dynamic Parameter
+    start_date: str = "2019-01-01",      # <-- Dynamic Parameter
+    end_date: str = "2025-12-31",        # <-- Dynamic Parameter
+    num_portfolios: int = 5000           # <-- Dynamic Parameter
+):
+
     if not tickers:
         selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "NFLX", "NVDA"]
     else:
         selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
 
     selected = selected[:15] 
-
     selected.sort()
     
+    num_assets = len(selected)
+
+    # --- Guardrail: Ensure weights can actually sum to 1.0 ---
+    if num_assets * max_weight < 1.0:
+        return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight or add more tickers."}
+        
     # Fetch data with auto_adjust=False to guarantee the 'Adj Close' column is generated
-    data = yf.download(selected, start='2019-01-01', end='2025-12-31', auto_adjust=False)
+    data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
     
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
@@ -46,8 +58,6 @@ def get_portfolio_data(tickers: str = ""):
     returns_daily = table.pct_change().dropna()
     returns_annual = returns_daily.mean() * 252 
     cov_annual = returns_daily.cov() * 252
-    
-    num_assets = len(selected)
 
     # --- 2. SCIPY MATHEMATICAL OPTIMIZATION ---
     def portfolio_performance(weights, returns, cov):
@@ -68,9 +78,8 @@ def get_portfolio_data(tickers: str = ""):
     # Constraints: All weights must sum exactly to 1 (100% of capital)
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
     
-    # Bounds: Set a maximum limit per stock to enforce real diversification
-    MAX_WEIGHT = 0.30 # No single stock can exceed 30% of the portfolio
-    bounds = tuple((0.0, MAX_WEIGHT) for _ in range(num_assets))
+    # Bounds: Use the dynamic max_weight passed from Flutter
+    bounds = tuple((0.0, max_weight) for _ in range(num_assets))
     
     # Starting guess for the solver (equal weight distribution)
     init_guess = num_assets * [1. / num_assets]
@@ -91,12 +100,12 @@ def get_portfolio_data(tickers: str = ""):
     min_vol_weights = opt_vol.x
     min_vol_ret, min_vol_vol = portfolio_performance(min_vol_weights, returns_annual, cov_annual)
 
-    num_portfolios = 5000
+    # Generate random portfolios using the dynamic num_portfolios parameter
     weights_matrix = np.random.random((num_portfolios, num_assets))
     weights_matrix /= np.sum(weights_matrix, axis=1)[:, np.newaxis]
     
     port_returns = np.dot(weights_matrix, returns_annual)
-    # Using the fast memory-efficient calculation we discussed
+    # Using the fast memory-efficient calculation
     port_vols = np.sqrt(np.sum(weights_matrix * (weights_matrix @ cov_annual.values), axis=1))
     
     port_data = [{"x": float(v), "y": float(r)} for v, r in zip(port_vols, port_returns)]
