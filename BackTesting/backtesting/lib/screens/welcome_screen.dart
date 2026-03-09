@@ -22,8 +22,12 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Grab the current theme so we can use its colors dynamically
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      // REMOVED: backgroundColor: Colors.white
+      // Now it will automatically use your ThemeData.scaffoldBackgroundColor
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -35,12 +39,12 @@ class WelcomeScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
             },
-            icon: const Icon(Icons.settings_outlined, color: Colors.blueGrey),
+            icon: Icon(Icons.settings_outlined, color: theme.colorScheme.onSurfaceVariant),
             tooltip: 'Settings',
           ),
           IconButton(
             onPressed: () => _handleLogout(context),
-            icon: const Icon(Icons.logout_rounded, color: Colors.blueGrey),
+            icon: Icon(Icons.logout_rounded, color: theme.colorScheme.onSurfaceVariant),
             tooltip: 'Logout',
           ),
         ],
@@ -60,29 +64,31 @@ class WelcomeScreen extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.query_stats_rounded, // Rising chart icon
+                  Icons.query_stats_rounded,
                   size: 80,
-                  color: Colors.green,
+                  color: Colors.green, // Kept green since it's an isolated brand element
                 ),
               ),
               const SizedBox(height: 32),
-              const Text(
+              Text(
                 "Portfolio Optimizer",
                 style: TextStyle(
                   fontSize: 28, 
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFF1A237E), // Deep Navy
+                  // CHANGED: Use the primary color from your theme (Dark Navy in light, Lighter Blue in dark)
+                  color: theme.colorScheme.primary, 
                   letterSpacing: -0.5,
                 ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 "Your portfolio optimizer is ready. Analyze risk, maximize returns, and backtest your next move.",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15, 
-                  color: Colors.blueGrey,
+                  // CHANGED: Use a theme-aware muted color instead of hardcoded blueGrey
+                  color: theme.colorScheme.onSurfaceVariant, 
                   height: 1.5,
                 ),
               ),
@@ -93,10 +99,8 @@ class WelcomeScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A237E),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+                  // REMOVED: Custom styleFrom with hardcoded background color. 
+                  // It will now automatically use the filledButtonTheme you defined in your ThemeData!
                   onPressed: () {
                     Navigator.pushReplacement(
                       context,
@@ -117,10 +121,9 @@ class WelcomeScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: OutlinedButton.icon(
+                  // REMOVED: Custom BorderSide and foregroundColor.
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.black12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    foregroundColor: Colors.black87,
                   ),
                   onPressed: () {
                     Navigator.pushReplacement(
@@ -143,7 +146,7 @@ class WelcomeScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10, 
                   fontWeight: FontWeight.bold, 
-                  color: Colors.green,
+                  color: Colors.green, // Kept green to match the logo icon
                   letterSpacing: 2,
                 ),
               ),
