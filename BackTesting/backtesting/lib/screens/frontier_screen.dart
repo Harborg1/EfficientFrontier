@@ -77,7 +77,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&start_date=$startStr'
       '&end_date=$endStr'
       '&num_portfolios=$_selectedPortfolios'
-      '&t = {DateTime.now().millisecondsSinceEpoch}' // Cache buster
+      '&t=${DateTime.now().millisecondsSinceEpoch}' // Cache buster
     );
 
     
