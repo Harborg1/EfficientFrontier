@@ -65,9 +65,29 @@ def get_portfolio_data(
 
     # 1. Kør simuleringen (uden 'continue' check)
     for _ in range(num_portfolios):
-        weights = np.random.random(num_assets)
-        weights /= np.sum(weights)
+        # 1. Generer vægte der altid summerer til 1.0 (Dirichlet er god til dette)
+        weights = np.random.dirichlet(np.ones(num_assets), size=1)[0]
+
+        # 2. "Rescale" logik: Hvis en vægt er over max_weight, 
+        # så tvinger vi den ned og omfordeler resten proportionalt.
+        # Vi kører det et par gange for at sikre, at alt overholdes.
+        for _ in range(10): 
+            if np.any(weights > max_weight):
+                # Find dem der er for store
+                too_high = weights > max_weight
+                excess = weights[too_high] - max_weight
+                weights[too_high] = max_weight
+                
+                # Find dem der er under grænsen og kan tage imod det overskydende
+                too_low = weights < max_weight
+                if total_excess := excess.sum():
+                    # Omfordel proportionalt til dem, der har plads
+                    weights[too_low] += (weights[too_low] / weights[too_low].sum()) * total_excess
+            else:
+                break
+
         
+        # Nu er 'weights' 100% garanteret at overholde max_weight og summere til 1.0
         returns = np.dot(weights, returns_annual)
         volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
         
