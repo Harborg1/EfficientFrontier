@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import scipy.optimize as sco 
 from typing import List
 
 app = FastAPI()
@@ -15,7 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. Define your expanded universe (S&P 100, Tech, etc.)
 TICKER_UNIVERSE = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "BRK-B", "JPM", "V", 
     "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC", "VZ", "KO", "PFE", 
@@ -25,10 +23,10 @@ TICKER_UNIVERSE = [
 @app.get("/optimize")
 def get_portfolio_data(
     tickers: str = "", 
-    max_weight: float = 0.30,            # <-- Dynamic Parameter
-    start_date: str = "2019-01-01",      # <-- Dynamic Parameter
-    end_date: str = "2025-12-31",        # <-- Dynamic Parameter
-    num_portfolios: int = 5000           # <-- Dynamic Parameter
+    max_weight: float = 0.30,            
+    start_date: str = "2019-01-01",      
+    end_date: str = "2025-12-31",        
+    num_portfolios: int = 5000           
 ):
 
     if not tickers:
@@ -41,78 +39,65 @@ def get_portfolio_data(
     
     num_assets = len(selected)
 
-    # --- Guardrail: Ensure weights can actually sum to 1.0 ---
     if num_assets * max_weight < 1.0:
         return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight or add more tickers."}
         
-    # Fetch data with auto_adjust=False to guarantee the 'Adj Close' column is generated
     data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
     
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
         
-    # Explicitly use the adjusted close to account for all splits and dividends
     table = data['Adj Close'].dropna()
     
-    # Calculate returns and covariance
     returns_daily = table.pct_change().dropna()
     returns_annual = returns_daily.mean() * 252 
     cov_annual = returns_daily.cov() * 252
 
-    # --- 2. SCIPY MATHEMATICAL OPTIMIZATION ---
-    def portfolio_performance(weights, returns, cov):
-        p_ret = np.sum(returns * weights)
-        p_vol = np.sqrt(np.dot(weights.T, np.dot(cov, weights)))
-        return p_ret, p_vol
-
-    # Objective function: We want to Maximize Sharpe, so we Minimize the Negative Sharpe
-    def neg_sharpe(weights, returns, cov):
-        p_ret, p_vol = portfolio_performance(weights, returns, cov)
-        return -p_ret / p_vol 
-
-    # Objective function: Minimize Volatility
-    def minimize_vol(weights, returns, cov):
-        p_ret, p_vol = portfolio_performance(weights, returns, cov)
-        return p_vol
-
-    # Constraints: All weights must sum exactly to 1 (100% of capital)
-    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-    
-    # Bounds: Use the dynamic max_weight passed from Flutter
-    bounds = tuple((0.0, max_weight) for _ in range(num_assets))
-    
-    # Starting guess for the solver (equal weight distribution)
-    init_guess = num_assets * [1. / num_assets]
-
-    # Run the solver for Max Sharpe
-    opt_sharpe = sco.minimize(neg_sharpe, init_guess, args=(returns_annual, cov_annual),
-                              method='SLSQP', bounds=bounds, constraints=constraints)
-    
-    # Run the solver for Min Volatility
-    opt_vol = sco.minimize(minimize_vol, init_guess, args=(returns_annual, cov_annual),
-                           method='SLSQP', bounds=bounds, constraints=constraints)
-
-    # Extract the exact optimal weights and performance metrics
-    max_sharpe_weights = opt_sharpe.x
-    max_sharpe_ret, max_sharpe_vol = portfolio_performance(max_sharpe_weights, returns_annual, cov_annual)
-    max_sharpe_ratio = max_sharpe_ret / max_sharpe_vol
-
-    min_vol_weights = opt_vol.x
-    min_vol_ret, min_vol_vol = portfolio_performance(min_vol_weights, returns_annual, cov_annual)
-
-    # Generate random portfolios using the dynamic num_portfolios parameter
+    # --- Generate random portfolios ---
     weights_matrix = np.random.random((num_portfolios, num_assets))
     weights_matrix /= np.sum(weights_matrix, axis=1)[:, np.newaxis]
     
-    port_returns = np.dot(weights_matrix, returns_annual)
-    # Using the fast memory-efficient calculation
-    port_vols = np.sqrt(np.sum(weights_matrix * (weights_matrix @ cov_annual.values), axis=1))
+    # Enforce max_weight constraint on random portfolios 
+    valid_indices = np.all(weights_matrix <= max_weight, axis=1)
+    valid_weights = weights_matrix[valid_indices]
+
+    if len(valid_weights) < 10:
+        return {"error": f"Only {len(valid_weights)} valid portfolios survived the max_weight constraint. Try increasing max_weight or generating more portfolios."}
+
+    # Calculate returns, volatility, and Sharpe ratios
+    port_returns = np.dot(valid_weights, returns_annual)
+    port_vols = np.sqrt(np.sum(valid_weights * (valid_weights @ cov_annual.values), axis=1))
+    port_sharpes = port_returns / port_vols
     
+    # --- SUBSET SELECTION LOGIC ---
+    
+    # 1. Maximize Sharpe for the least amount of variance
+    # Get the top 10% of portfolios by Sharpe Ratio
+    sharpe_threshold = np.percentile(port_sharpes, 90)
+    top_sharpe_indices = np.where(port_sharpes >= sharpe_threshold)[0]
+    # Among those high-Sharpe portfolios, find the index of the one with the lowest volatility
+    best_sharpe_least_var_idx = top_sharpe_indices[np.argmin(port_vols[top_sharpe_indices])]
+    
+    max_sharpe_weights = valid_weights[best_sharpe_least_var_idx]
+    max_sharpe_ret = port_returns[best_sharpe_least_var_idx]
+    max_sharpe_vol = port_vols[best_sharpe_least_var_idx]
+    max_sharpe_ratio = port_sharpes[best_sharpe_least_var_idx]
+
+    # 2. Minimize Variance for the best Sharpe
+    # Get the bottom 10% of portfolios by volatility
+    vol_threshold = np.percentile(port_vols, 10)
+    lowest_vol_indices = np.where(port_vols <= vol_threshold)[0]
+    # Among those low-volatility portfolios, find the index of the one with the highest Sharpe Ratio
+    best_var_max_sharpe_idx = lowest_vol_indices[np.argmax(port_sharpes[lowest_vol_indices])]
+
+    min_vol_weights = valid_weights[best_var_max_sharpe_idx]
+    min_vol_ret = port_returns[best_var_max_sharpe_idx]
+    min_vol_vol = port_vols[best_var_max_sharpe_idx]
+
+    # Format scatter plot data
     port_data = [{"x": float(v), "y": float(r)} for v, r in zip(port_vols, port_returns)]
 
-    # Helper function to map weights
     def get_weight_dict(weights_array):
-        # We use round to clean up floating point math (e.g. 0.2999999 -> 0.30)
         return {selected[i]: round(float(weights_array[i]), 4) for i in range(num_assets)}
 
     return {
