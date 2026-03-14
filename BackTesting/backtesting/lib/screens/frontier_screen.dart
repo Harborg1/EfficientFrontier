@@ -79,7 +79,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&num_portfolios=$_selectedPortfolios'
       '&t=${DateTime.now().millisecondsSinceEpoch}' // Cache buster
     );
-
     
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 45));

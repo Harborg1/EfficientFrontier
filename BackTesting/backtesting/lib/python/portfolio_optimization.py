@@ -28,7 +28,6 @@ def get_portfolio_data(
     end_date: str = "2025-12-31",        
     num_portfolios: int = 100000          
 ):
-
     if not tickers:
         selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "NFLX", "NVDA"]
     else:

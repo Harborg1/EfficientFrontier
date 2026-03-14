@@ -3,6 +3,7 @@ import 'package:backtesting/screens/saved_portfolios.dart';
 import 'package:flutter/material.dart';
 import 'package:backtesting/screens/frontier_screen.dart'; 
 import 'package:backtesting/screens/settings_screen.dart';
+import 'package:backtesting/screens/performance_screen.dart'; // Importer din performance skærm
 import 'package:firebase_auth/firebase_auth.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -22,12 +23,9 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Grab the current theme so we can use its colors dynamically
     final theme = Theme.of(context);
 
     return Scaffold(
-      // REMOVED: backgroundColor: Colors.white
-      // Now it will automatically use your ThemeData.scaffoldBackgroundColor
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -56,7 +54,6 @@ class WelcomeScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // STOCK THEMED ICON
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -66,7 +63,7 @@ class WelcomeScreen extends StatelessWidget {
                 child: const Icon(
                   Icons.query_stats_rounded,
                   size: 80,
-                  color: Colors.green, // Kept green since it's an isolated brand element
+                  color: Colors.green,
                 ),
               ),
               const SizedBox(height: 32),
@@ -75,7 +72,6 @@ class WelcomeScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 28, 
                   fontWeight: FontWeight.w900,
-                  // CHANGED: Use the primary color from your theme (Dark Navy in light, Lighter Blue in dark)
                   color: theme.colorScheme.primary, 
                   letterSpacing: -0.5,
                 ),
@@ -87,7 +83,6 @@ class WelcomeScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15, 
-                  // CHANGED: Use a theme-aware muted color instead of hardcoded blueGrey
                   color: theme.colorScheme.onSurfaceVariant, 
                   height: 1.5,
                 ),
@@ -99,8 +94,6 @@ class WelcomeScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: FilledButton.icon(
-                  // REMOVED: Custom styleFrom with hardcoded background color. 
-                  // It will now automatically use the filledButtonTheme you defined in your ThemeData!
                   onPressed: () {
                     Navigator.pushReplacement(
                       context,
@@ -116,12 +109,34 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
 
+              // NEW ACTION: SEE PERFORMANCE
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PerformanceScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.show_chart_rounded, size: 20),
+                  label: const Text(
+                    "Show Market Performance",
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // SECONDARY ACTION: SAVED PORTFOLIOS
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: OutlinedButton.icon(
-                  // REMOVED: Custom BorderSide and foregroundColor.
                   style: OutlinedButton.styleFrom(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -140,13 +155,12 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 40),
               
-              // DECORATIVE BOTTOM TEXT
               const Text(
                 "MARKET DATA SYNCED",
                 style: TextStyle(
                   fontSize: 10, 
                   fontWeight: FontWeight.bold, 
-                  color: Colors.green, // Kept green to match the logo icon
+                  color: Colors.green, 
                   letterSpacing: 2,
                 ),
               ),

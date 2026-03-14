@@ -1,6 +1,8 @@
 fastapi
 uvicorn
+gunicorn
 yfinance
 pandas
 numpy
 scipy
+pydantic
