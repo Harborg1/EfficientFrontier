@@ -28,7 +28,7 @@ class BacktestRequest(BaseModel):
     weights: Dict[str, float]
     timeframe: str = "1y"
 
-# --- ENDPOINT 1: OPTIMIZE (Følger din specifikke klasse-logik) ---
+# --- ENDPOINT 1: OPTIMIZE
 
 @app.get("/optimize")
 def get_portfolio_data(
@@ -49,7 +49,7 @@ def get_portfolio_data(
 
     if num_assets * max_weight < 1.0:
         return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight."}
-        
+    
     data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
@@ -137,21 +137,37 @@ def get_portfolio_data(
         }
     }
 
-# --- ENDPOINT 2: BACKTEST (Uændret) ---
+# --- ENDPOINT 2: Backtest
 
 @app.post("/backtest")
 async def backtest(data: BacktestRequest):
     try:
-        all_tickers = data.tickers + ['SPY']
-        df = yf.download(all_tickers, period=data.timeframe)['Adj Close']
+        # Hent data for porteføljen + SPY
+        all_tickers = list(set(data.tickers + ['SPY'])) # set fjerner dubletter
+        df = yf.download(all_tickers, period=data.timeframe, auto_adjust=False)
         
-        if df.empty:
+        if df.empty or 'Adj Close' not in df:
             raise HTTPException(status_code=400, detail="Could not fetch market data")
 
-        returns = df.pct_change().dropna()
-        valid_tickers = [t for t in data.tickers if t in returns.columns]
-        port_returns = sum(returns[t] * data.weights[t] for t in valid_tickers)
+        # Vi isolerer Adj Close og fjerner NaN
+        prices = df['Adj Close'].dropna()
+        returns = prices.pct_change().dropna()
         
+        # Vi sikrer os, at vi kun regner på de tickers, der rent faktisk er i dataen
+        valid_tickers = [t for t in data.tickers if t in returns.columns]
+        
+        if not valid_tickers:
+             raise HTTPException(status_code=400, detail="No valid tickers found in data")
+
+        # Beregn vægtet afkast (vi reskalerer vægte hvis en ticker mangler)
+        # Dette sikrer at summen af vægte stadig er 1.0 (100%)
+        current_weights = np.array([data.weights[t] for t in valid_tickers])
+        current_weights /= current_weights.sum() 
+        
+        # Matrix multiplikation er hurtigere end sum() loopet
+        port_returns = returns[valid_tickers].dot(current_weights)
+        
+        # Equity Curve (Base 100)
         port_equity = ((1 + port_returns).cumprod() * 100).tolist()
         spy_equity = ((1 + returns['SPY']).cumprod() * 100).tolist()
         
@@ -160,6 +176,7 @@ async def backtest(data: BacktestRequest):
             'spy': [{'x': i, 'y': round(val, 2)} for i, val in enumerate(spy_equity)]
         }
     except Exception as e:
+        print(f"Backtest Error: {e}") # Godt for debugging
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tickers")
@@ -169,3 +186,4 @@ def get_available_tickers():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
