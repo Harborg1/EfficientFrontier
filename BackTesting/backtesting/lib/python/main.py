@@ -8,7 +8,6 @@ from typing import List, Dict, Optional
 
 app = FastAPI()
 
-# Gør det muligt for din Flutter web-app at kalde din API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,7 +28,7 @@ class BacktestRequest(BaseModel):
     weights: Dict[str, float]
     timeframe: str = "1y"
 
-# --- ENDPOINT 1: OPTIMERING (Monte Carlo Simulation) ---
+# --- ENDPOINT 1: OPTIMIZE (Følger din specifikke klasse-logik) ---
 
 @app.get("/optimize")
 def get_portfolio_data(
@@ -56,7 +55,6 @@ def get_portfolio_data(
         return {"error": "Could not retrieve data for the specified tickers."}
         
     table = data['Adj Close'].dropna()
-    
     returns_daily = table.pct_change().dropna()
     returns_annual = returns_daily.mean() * 250
     cov_annual = returns_daily.cov() * 250
@@ -65,15 +63,11 @@ def get_portfolio_data(
     port_volatility = []
     stock_weights = []
 
-    # Simulation
+    # 1. Kør simuleringen (uden 'continue' check)
     for _ in range(num_portfolios):
         weights = np.random.random(num_assets)
         weights /= np.sum(weights)
         
-        # Tjek max weight constraint med det samme for hastighed
-        if np.any(weights > max_weight):
-            continue
-            
         returns = np.dot(weights, returns_annual)
         volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
         
@@ -81,55 +75,63 @@ def get_portfolio_data(
         port_volatility.append(volatility)
         stock_weights.append(weights)
 
-    if not port_returns:
-         return {"error": f"None of the portfolios met the max_weight constraint."}
+    # 2. Opbyg portfolio dictionary (ligesom din klasse)
+    portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
+    for counter, symbol in enumerate(selected):
+        portfolio[symbol+' weight'] = [weight[counter] for weight in stock_weights]
 
-    df = pd.DataFrame({'Returns': port_returns, 'Volatility': port_volatility})
+    # 3. Omdan til DataFrame og beregn Sharpe
+    df = pd.DataFrame(portfolio)
     df['Sharpe'] = df['Returns'] / df['Volatility']
 
-    # Find Max Sharpe og Min Vol
+    # 4. Filtrer baseret på max_weight efter simuleringen
+    weight_cols = [s + ' weight' for s in selected]
+    df = df[df[weight_cols].max(axis=1) <= max_weight]
+    
+    if df.empty:
+        return {"error": f"None of the {num_portfolios} portfolios met the max_weight constraint of {max_weight}."}
+
+    # 5. Find vinderne
     best_sharpe_idx = df['Sharpe'].idxmax()
+    max_sharpe_port = df.loc[best_sharpe_idx]
+
     least_var_idx = df['Volatility'].idxmin()
+    min_vol_port = df.loc[least_var_idx]
 
-    def extract_weights(idx):
-        return {symbol: round(float(stock_weights[idx][i]), 4) for i, symbol in enumerate(selected)}
+    def extract_weights(port_series):
+        return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
 
+    # 6. Returner data (scatter_points er nu hele listen uden [::10])
     return {
-        "scatter_points": [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])][::10], # Subset for performance
+        "scatter_points": [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])],
         "max_sharpe": {
-            "x": float(df.loc[best_sharpe_idx, 'Volatility']), 
-            "y": float(df.loc[best_sharpe_idx, 'Returns']),
-            "sharpe": float(df.loc[best_sharpe_idx, 'Sharpe']),
-            "weights": extract_weights(best_sharpe_idx)
+            "x": float(max_sharpe_port['Volatility']), 
+            "y": float(max_sharpe_port['Returns']),
+            "sharpe": float(max_sharpe_port['Sharpe']),
+            "weights": extract_weights(max_sharpe_port)
         },
         "min_vol": {
-            "x": float(df.loc[least_var_idx, 'Volatility']), 
-            "y": float(df.loc[least_var_idx, 'Returns']),
-            "weights": extract_weights(least_var_idx)
+            "x": float(min_vol_port['Volatility']), 
+            "y": float(min_vol_port['Returns']),
+            "weights": extract_weights(min_vol_port)
         }
     }
 
-# --- ENDPOINT 2: BACKTEST (Historisk sammenligning) ---
+# --- ENDPOINT 2: BACKTEST (Uændret) ---
 
 @app.post("/backtest")
 async def backtest(data: BacktestRequest):
     try:
-        # Hent portefølje-aktier + SPY som benchmark
         all_tickers = data.tickers + ['SPY']
         df = yf.download(all_tickers, period=data.timeframe)['Adj Close']
         
         if df.empty:
             raise HTTPException(status_code=400, detail="Could not fetch market data")
 
-        # Beregn daglige afkast
         returns = df.pct_change().dropna()
-        
-        # Beregn vægtet porteføljeafkast pr. dag
-        # Vi sikrer os at vi kun bruger tickers der faktisk kom med i downloadet
         valid_tickers = [t for t in data.tickers if t in returns.columns]
         port_returns = sum(returns[t] * data.weights[t] for t in valid_tickers)
         
-        # Equity Curve (Startværdi 100)
         port_equity = ((1 + port_returns).cumprod() * 100).tolist()
         spy_equity = ((1 + returns['SPY']).cumprod() * 100).tolist()
         
@@ -139,8 +141,6 @@ async def backtest(data: BacktestRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- ENDPOINT 3: TICKER LISTE ---
 
 @app.get("/tickers")
 def get_available_tickers():
