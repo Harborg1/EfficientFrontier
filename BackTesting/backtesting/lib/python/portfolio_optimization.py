@@ -26,7 +26,7 @@ def get_portfolio_data(
     max_weight: float = 0.30,            
     start_date: str = "2019-01-01",      
     end_date: str = "2025-12-31",        
-    num_portfolios: int = 5000           
+    num_portfolios: int = 100000          # <-- Updated to your 100k preference
 ):
 
     if not tickers:
@@ -40,78 +40,82 @@ def get_portfolio_data(
     num_assets = len(selected)
 
     if num_assets * max_weight < 1.0:
-        return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight or add more tickers."}
+        return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight."}
         
     data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
-    
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
         
     table = data['Adj Close'].dropna()
     
+    # Your setup calculations
     returns_daily = table.pct_change().dropna()
-    returns_annual = returns_daily.mean() * 252 
-    cov_annual = returns_daily.cov() * 252
+    returns_annual = returns_daily.mean() * 250
+    cov_daily = returns_daily.cov()
+    cov_annual = cov_daily * 250
 
-    # --- Generate random portfolios ---
-    weights_matrix = np.random.random((num_portfolios, num_assets))
-    weights_matrix /= np.sum(weights_matrix, axis=1)[:, np.newaxis]
+    # Your list initializations
+    port_returns = []
+    port_volatility = []
+    stock_weights = []
+
+    # Your loop
+    for single_portfolio in range(num_portfolios):
+        weights = np.random.random(num_assets)
+        weights /= np.sum(weights)
+        returns = np.dot(weights, returns_annual)
+        volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
+        
+        port_returns.append(returns)
+        port_volatility.append(volatility)
+        stock_weights.append(weights)
+
+    # Your dictionary and dataframe creation
+    portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
+    for counter, symbol in enumerate(selected):
+        portfolio[symbol+' weight'] = [weight[counter] for weight in stock_weights]
+
+    df = pd.DataFrame(portfolio)
     
-    # Enforce max_weight constraint on random portfolios 
-    valid_indices = np.all(weights_matrix <= max_weight, axis=1)
-    valid_weights = weights_matrix[valid_indices]
+    # Calculate Sharpe Ratio for all portfolios
+    df['Sharpe'] = df['Returns'] / df['Volatility']
 
-    if len(valid_weights) < 10:
-        return {"error": f"Only {len(valid_weights)} valid portfolios survived the max_weight constraint. Try increasing max_weight or generating more portfolios."}
-
-    # Calculate returns, volatility, and Sharpe ratios
-    port_returns = np.dot(valid_weights, returns_annual)
-    port_vols = np.sqrt(np.sum(valid_weights * (valid_weights @ cov_annual.values), axis=1))
-    port_sharpes = port_returns / port_vols
+    # --- Guardrail: Enforce max_weight dynamically ---
+    # Find all columns that end in ' weight' and drop rows where any exceed max_weight
+    weight_cols = [s + ' weight' for s in selected]
+    df = df[df[weight_cols].max(axis=1) <= max_weight]
     
-    # --- SUBSET SELECTION LOGIC ---
-    
-    # 1. Maximize Sharpe for the least amount of variance
-    # Get the top 10% of portfolios by Sharpe Ratio
-    sharpe_threshold = np.percentile(port_sharpes, 90)
-    top_sharpe_indices = np.where(port_sharpes >= sharpe_threshold)[0]
-    # Among those high-Sharpe portfolios, find the index of the one with the lowest volatility
-    best_sharpe_least_var_idx = top_sharpe_indices[np.argmin(port_vols[top_sharpe_indices])]
-    
-    max_sharpe_weights = valid_weights[best_sharpe_least_var_idx]
-    max_sharpe_ret = port_returns[best_sharpe_least_var_idx]
-    max_sharpe_vol = port_vols[best_sharpe_least_var_idx]
-    max_sharpe_ratio = port_sharpes[best_sharpe_least_var_idx]
+    if df.empty:
+        return {"error": f"None of the {num_portfolios} portfolios met the max_weight constraint of {max_weight}."}
 
-    # 2. Minimize Variance for the best Sharpe
-    # Get the bottom 10% of portfolios by volatility
-    vol_threshold = np.percentile(port_vols, 10)
-    lowest_vol_indices = np.where(port_vols <= vol_threshold)[0]
-    # Among those low-volatility portfolios, find the index of the one with the highest Sharpe Ratio
-    best_var_max_sharpe_idx = lowest_vol_indices[np.argmax(port_sharpes[lowest_vol_indices])]
+    # --- Extract Max Sharpe and Min Volatility ---
+    # Get the index of the best rows, then locate them
+    max_sharpe_idx = df['Sharpe'].idxmax()
+    min_vol_idx = df['Volatility'].idxmin()
 
-    min_vol_weights = valid_weights[best_var_max_sharpe_idx]
-    min_vol_ret = port_returns[best_var_max_sharpe_idx]
-    min_vol_vol = port_vols[best_var_max_sharpe_idx]
+    max_sharpe_port = df.loc[max_sharpe_idx]
+    min_vol_port = df.loc[min_vol_idx]
 
-    # Format scatter plot data
-    port_data = [{"x": float(v), "y": float(r)} for v, r in zip(port_vols, port_returns)]
+    # Format the scatter points for Flutter
+    # Using python's zip is faster than iterating rows in pandas
+    port_data = [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])]
 
-    def get_weight_dict(weights_array):
-        return {selected[i]: round(float(weights_array[i]), 4) for i in range(num_assets)}
+    # Helper function to extract weights from the targeted pandas Series
+    def extract_weights(port_series):
+        return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
 
     return {
         "scatter_points": port_data,
         "max_sharpe": {
-            "x": float(max_sharpe_vol), 
-            "y": float(max_sharpe_ret),
-            "sharpe": float(max_sharpe_ratio),
-            "weights": get_weight_dict(max_sharpe_weights)
+            "x": float(max_sharpe_port['Volatility']), 
+            "y": float(max_sharpe_port['Returns']),
+            "sharpe": float(max_sharpe_port['Sharpe']),
+            "weights": extract_weights(max_sharpe_port)
         },
         "min_vol": {
-            "x": float(min_vol_vol), 
-            "y": float(min_vol_ret),
-            "weights": get_weight_dict(min_vol_weights)
+            "x": float(min_vol_port['Volatility']), 
+            "y": float(min_vol_port['Returns']),
+            "weights": extract_weights(min_vol_port)
         }
     }
 
