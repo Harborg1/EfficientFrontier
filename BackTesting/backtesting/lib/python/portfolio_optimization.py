@@ -85,21 +85,12 @@ def get_portfolio_data(
 
     # --- UPDATED: Subset Extraction Logic ---
 
-    # 1. Maximize Sharpe for the least amount of variance
-    # Get the top 10% of portfolios by Sharpe Ratio
-    sharpe_threshold = df['Sharpe'].quantile(0.90)
-    top_sharpe_df = df[df['Sharpe'] >= sharpe_threshold]
-    # From that elite group, pick the one with the absolute lowest volatility
-    best_sharpe_least_var_idx = top_sharpe_df['Volatility'].idxmin()
-    max_sharpe_port = df.loc[best_sharpe_least_var_idx]
+    best_sharpe_idx = df['Sharpe'].idxmax()
+    max_sharpe_port = df.loc[best_sharpe_idx]
 
-    # 2. Minimize Variance for the best Sharpe
-    # Get the bottom 10% of portfolios by Volatility
-    vol_threshold = df['Volatility'].quantile(0.10)
-    lowest_vol_df = df[df['Volatility'] <= vol_threshold]
-    # From that safe group, pick the one with the absolute highest Sharpe
-    best_var_max_sharpe_idx = lowest_vol_df['Sharpe'].idxmax()
-    min_vol_port = df.loc[best_var_max_sharpe_idx]
+    # 2. Absolute Minimum Volatility (Risk)
+    least_var_idx = df['Volatility'].idxmin()
+    min_vol_port = df.loc[least_var_idx]
 
     # ----------------------------------------
 
