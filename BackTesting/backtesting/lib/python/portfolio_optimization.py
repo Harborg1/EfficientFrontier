@@ -26,7 +26,7 @@ def get_portfolio_data(
     max_weight: float = 0.30,            
     start_date: str = "2019-01-01",      
     end_date: str = "2025-12-31",        
-    num_portfolios: int = 100000          # <-- Updated to your 100k preference
+    num_portfolios: int = 100000          
 ):
 
     if not tickers:
@@ -48,18 +48,15 @@ def get_portfolio_data(
         
     table = data['Adj Close'].dropna()
     
-    # Your setup calculations
     returns_daily = table.pct_change().dropna()
     returns_annual = returns_daily.mean() * 250
     cov_daily = returns_daily.cov()
     cov_annual = cov_daily * 250
 
-    # Your list initializations
     port_returns = []
     port_volatility = []
     stock_weights = []
 
-    # Your loop
     for single_portfolio in range(num_portfolios):
         weights = np.random.random(num_assets)
         weights /= np.sum(weights)
@@ -70,37 +67,44 @@ def get_portfolio_data(
         port_volatility.append(volatility)
         stock_weights.append(weights)
 
-    # Your dictionary and dataframe creation
     portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
     for counter, symbol in enumerate(selected):
         portfolio[symbol+' weight'] = [weight[counter] for weight in stock_weights]
 
     df = pd.DataFrame(portfolio)
     
-    # Calculate Sharpe Ratio for all portfolios
     df['Sharpe'] = df['Returns'] / df['Volatility']
 
-    # --- Guardrail: Enforce max_weight dynamically ---
-    # Find all columns that end in ' weight' and drop rows where any exceed max_weight
     weight_cols = [s + ' weight' for s in selected]
     df = df[df[weight_cols].max(axis=1) <= max_weight]
     
     if df.empty:
         return {"error": f"None of the {num_portfolios} portfolios met the max_weight constraint of {max_weight}."}
+    if len(df) < 10:
+        return {"error": "Not enough valid portfolios to calculate meaningful quantiles. Increase num_portfolios or max_weight."}
 
-    # --- Extract Max Sharpe and Min Volatility ---
-    # Get the index of the best rows, then locate them
-    max_sharpe_idx = df['Sharpe'].idxmax()
-    min_vol_idx = df['Volatility'].idxmin()
+    # --- UPDATED: Subset Extraction Logic ---
 
-    max_sharpe_port = df.loc[max_sharpe_idx]
-    min_vol_port = df.loc[min_vol_idx]
+    # 1. Maximize Sharpe for the least amount of variance
+    # Get the top 10% of portfolios by Sharpe Ratio
+    sharpe_threshold = df['Sharpe'].quantile(0.90)
+    top_sharpe_df = df[df['Sharpe'] >= sharpe_threshold]
+    # From that elite group, pick the one with the absolute lowest volatility
+    best_sharpe_least_var_idx = top_sharpe_df['Volatility'].idxmin()
+    max_sharpe_port = df.loc[best_sharpe_least_var_idx]
 
-    # Format the scatter points for Flutter
-    # Using python's zip is faster than iterating rows in pandas
+    # 2. Minimize Variance for the best Sharpe
+    # Get the bottom 10% of portfolios by Volatility
+    vol_threshold = df['Volatility'].quantile(0.10)
+    lowest_vol_df = df[df['Volatility'] <= vol_threshold]
+    # From that safe group, pick the one with the absolute highest Sharpe
+    best_var_max_sharpe_idx = lowest_vol_df['Sharpe'].idxmax()
+    min_vol_port = df.loc[best_var_max_sharpe_idx]
+
+    # ----------------------------------------
+
     port_data = [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])]
 
-    # Helper function to extract weights from the targeted pandas Series
     def extract_weights(port_series):
         return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
 
