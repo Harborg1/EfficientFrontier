@@ -144,47 +144,52 @@ def get_portfolio_data(
 async def backtest(data: BacktestRequest):
     try:
         all_tickers = list(set(data.tickers + ['SPY']))
-        df = yf.download(all_tickers, period=data.timeframe, auto_adjust=False)
+        # Hent historisk data
+        df = yf.download(all_tickers, period=data.timeframe, auto_adjust=False)['Adj Close']
         
-        if df.empty or 'Adj Close' not in df:
-            raise HTTPException(status_code=400, detail="Could not fetch market data")
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Kunne ikke hente markedsdata")
 
-        prices = df['Adj Close'].dropna()
-        returns = prices.pct_change().dropna()
+        returns = df.pct_change().dropna()
         valid_tickers = [t for t in data.tickers if t in returns.columns]
         
-        # Beregn vægte
-        current_weights = np.array([data.weights[t] for t in valid_tickers])
-        current_weights /= current_weights.sum() 
+        # Beregn vægte (sikrer de summerer til 1)
+        w_array = np.array([data.weights[t] for t in valid_tickers])
+        w_array /= w_array.sum()
         
-        # Daglige afkast
-        port_daily = returns[valid_tickers].dot(current_weights)
+        # Beregn daglige afkast
+        port_daily = returns[valid_tickers].dot(w_array)
         spy_daily = returns['SPY']
 
-        # Funktion til beregning af stats
-        def get_stats(daily_rets):
-            cum_ret = (1 + daily_rets).cumprod()
-            # Annualiseret Volatilitet
-            vol = daily_rets.std() * np.sqrt(252)
-            # Sharpe Ratio (Rf = 0%)
+        def calculate_kpis(daily_rets):
+            cum_rets = (1 + daily_rets).cumprod()
+            
+            # 1. Total Afkast (YTD/Valgt periode)
+            total_return = (cum_rets.iloc[-1] - 1) * 100
+            
+            # 2. Annualiseret Volatilitet
+            vol = daily_rets.std() * np.sqrt(252) * 100
+            
+            # 3. Sharpe Ratio
             sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(252) if daily_rets.std() != 0 else 0
-            # YTD Performance (Afkast fra starten af indeværende år)
-            # Bemærk: Dette virker bedst hvis data dækker mindst fra 1. januar
-            current_year = pd.Timestamp.now().year
-            ytd_data = daily_rets[daily_rets.index.year == current_year]
-            ytd_perf = (1 + ytd_data).cumprod().iloc[-1] - 1 if not ytd_data.empty else 0
+            
+            # 4. Max Drawdown
+            peak = cum_rets.cummax()
+            drawdown = (cum_rets - peak) / peak
+            max_dd = drawdown.min() * 100
             
             return {
                 "sharpe": round(float(sharpe), 2),
-                "volatility": round(float(vol * 100), 2),
-                "ytd_perf": round(float(ytd_perf * 100), 2)
+                "volatility": round(float(vol), 2),
+                "ytd_perf": round(float(total_return), 2),
+                "max_drawdown": round(float(max_dd), 2)
             }
 
         return {
-            "portfolio": [{'x': i, 'y': round(val, 2)} for i, val in enumerate((1 + port_daily).cumprod() * 100)],
-            "spy": [{'x': i, 'y': round(val, 2)} for i, val in enumerate((1 + spy_daily).cumprod() * 100)],
-            "portfolio_stats": get_stats(port_daily),
-            "spy_stats": get_stats(spy_daily)
+            "portfolio": [{"x": i, "y": round(val, 2)} for i, val in enumerate((1 + port_daily).cumprod() * 100)],
+            "spy": [{"x": i, "y": round(val, 2)} for i, val in enumerate((1 + spy_daily).cumprod() * 100)],
+            "portfolio_stats": calculate_kpis(port_daily),
+            "spy_stats": calculate_kpis(spy_daily)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

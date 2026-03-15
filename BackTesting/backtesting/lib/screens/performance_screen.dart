@@ -17,17 +17,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _selectedPortfolioData;
   String _selectedTimeframe = '1y'; 
   
-  // Data til grafen
+  // Data for the chart
   List<FlSpot> _portfolioSpots = [];
   List<FlSpot> _spySpots = [];
   
-  // Data til statistik-tabellen
+  // Data for the statistics table
   Map<String, dynamic>? _portfolioStats;
   Map<String, dynamic>? _spyStats;
   
   bool _isLoading = false;
 
-  // --- API KALD TIL BACKEND ---
+  // --- API CALL TO BACKEND ---
   Future<void> _fetchBacktestData() async {
     if (_selectedPortfolioData == null) return;
 
@@ -39,6 +39,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       _spyStats = null;
     });
 
+    // Ensure this URL matches your deployed backend
     final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); 
     
     try {
@@ -56,6 +57,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         final data = jsonDecode(response.body);
         
         setState(() {
+          // Mapping historical equity curve points
           _portfolioSpots = (data['portfolio'] as List)
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
@@ -64,6 +66,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
 
+          // Saving calculated statistics
           _portfolioStats = data['portfolio_stats'];
           _spyStats = data['spy_stats'];
         });
@@ -72,7 +75,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Kunne ikke hente data: $e")),
+        SnackBar(content: Text("Could not fetch data: $e")),
       );
     } finally {
       setState(() => _isLoading = false);
@@ -87,12 +90,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text("Performance Analysis")),
       body: user == null
-          ? const Center(child: Text("Log ind for at se din performance"))
+          ? const Center(child: Text("Please log in to view performance data."))
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // DROPDOWN - Vælg gemt portefølje
+                  // DROPDOWN - Select saved portfolio from Firestore
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('users')
@@ -103,11 +106,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) return const LinearProgressIndicator();
                       final docs = snapshot.data!.docs;
-                      if (docs.isEmpty) return const Text("Ingen gemte porteføljer fundet.");
+                      if (docs.isEmpty) return const Text("No saved portfolios found.");
 
                       return DropdownButtonFormField<String>(
                         decoration: const InputDecoration(
-                          labelText: 'Vælg Portefølje', 
+                          labelText: 'Choose Portfolio', 
                           border: OutlineInputBorder()
                         ),
                         value: _selectedPortfolioId,
@@ -115,7 +118,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           final data = doc.data() as Map<String, dynamic>;
                           return DropdownMenuItem(
                             value: doc.id,
-                            child: Text("${data['type']} (${data['tickers'].length} aktier)"),
+                            child: Text("${data['type']} (${data['tickers'].length} assets)"),
                           );
                         }).toList(),
                         onChanged: (id) {
@@ -131,7 +134,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 16),
 
-                  // TIMEFRAME SELECTOR
+                  // TIMEFRAME SELECTOR (1 Month, 6 Months, 1 Year, etc.)
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -156,13 +159,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 24),
 
-                  // GRAF SEKTION
+                  // CHART SECTION - Historical Comparison
                   Expanded(
                     flex: 3,
                     child: _isLoading 
                       ? const Center(child: CircularProgressIndicator())
                       : _portfolioSpots.isEmpty 
-                        ? const Center(child: Text("Vælg en portefølje for at sammenligne med markedet"))
+                        ? const Center(child: Text("Choose a portfolio to compare against the SPY"))
                         : LineChart(_buildChartData(theme)),
                   ),
 
@@ -170,7 +173,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 16),
 
-                  // STATISTIK TABEL
+                  // STATISTICS TABLE - Key Performance Indicators (KPIs)
                   if (_portfolioStats != null && _spyStats != null)
                     Expanded(
                       flex: 2,
@@ -200,15 +203,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             higherIsBetter: true
           ),
           _statRow(
-            "Volatilitet", 
+            "Volatility", 
             "${_portfolioStats!['volatility']}%", 
             "${_spyStats!['volatility']}%", 
-            higherIsBetter: false, // Lavere risiko er bedre
+            higherIsBetter: false, // Lower risk is better
             rawPort: _portfolioStats!['volatility'],
             rawSpy: _spyStats!['volatility'],
           ),
           _statRow(
-            "YTD Afkast", 
+            "Max Drawdown", 
+            "${_portfolioStats!['max_drawdown']}%", 
+            "${_spyStats!['max_drawdown']}%", 
+            higherIsBetter: false, // Smaller loss (less negative) is better
+            rawPort: _portfolioStats!['max_drawdown'],
+            rawSpy: _spyStats!['max_drawdown'],
+          ),
+          _statRow(
+            "Cumulative Return", 
             "${_portfolioStats!['ytd_perf']}%", 
             "${_spyStats!['ytd_perf']}%", 
             higherIsBetter: true
@@ -232,7 +243,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _statRow(String label, dynamic port, dynamic spy, {required bool higherIsBetter, dynamic rawPort, dynamic rawSpy}) {
-    // Logik til at farve tallet grønt hvis det vinder over markedet
+    // Logic to color the text green if the portfolio outperforms the benchmark
     bool isWinner = false;
     final valP = rawPort ?? port;
     final valS = rawSpy ?? spy;
@@ -276,7 +287,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         touchTooltipData: LineTouchTooltipData(
           getTooltipColor: (spot) => Colors.blueGrey.withOpacity(0.9),
           getTooltipItems: (spots) => spots.map((s) => LineTooltipItem(
-            "Kurs: ${s.y.toStringAsFixed(2)}", 
+            "Value: ${s.y.toStringAsFixed(2)}", 
             const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
           )).toList(),
         ),
@@ -294,7 +305,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       ),
       borderData: FlBorderData(show: false),
       lineBarsData: [
-        // PORTFOLIO KURVE
+        // PORTFOLIO EQUITY CURVE
         LineChartBarData(
           spots: _portfolioSpots,
           isCurved: true,
@@ -303,7 +314,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           dotData: const FlDotData(show: false),
           belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.1)),
         ),
-        // S&P 500 KURVE
+        // S&P 500 BENCHMARK CURVE
         LineChartBarData(
           spots: _spySpots,
           isCurved: true,
@@ -320,7 +331,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _legendItem(theme.colorScheme.primary, "Din Portefølje"),
+        _legendItem(theme.colorScheme.primary, "Your Portfolio"),
         const SizedBox(width: 20),
         _legendItem(Colors.orange, "S&P 500 (SPY)"),
       ],
