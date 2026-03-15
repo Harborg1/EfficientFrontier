@@ -415,7 +415,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     sideTitles: SideTitles(
                       showTitles: true, 
                       reservedSize: 30, 
-                      interval: 0.01,
+                      interval: 0.05,
                       getTitlesWidget: (v, m) {
                         // Hide the explicit min and max boundary labels to prevent overlap
                         if (v == m.min || v == m.max) {
@@ -434,7 +434,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     sideTitles: SideTitles(
                       showTitles: true, 
                       reservedSize: 40,
-                      interval: 0.01, // <-- ADD THIS LINE HERE
+                      interval: 0.05, // <-- ADD THIS LINE HERE
                       getTitlesWidget: (v, m) {
                         // Hide the explicit min and max boundary labels to prevent overlap
                         if (v == m.min || v == m.max) {
