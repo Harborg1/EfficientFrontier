@@ -15,12 +15,18 @@ class PerformanceScreen extends StatefulWidget {
 class _PerformanceScreenState extends State<PerformanceScreen> {
   String? _selectedPortfolioId;
   Map<String, dynamic>? _selectedPortfolioData;
-  String _selectedTimeframe = '1y'; // Backend forventer små bogstaver: 1y, 5y osv.
-  Map<String, dynamic>? _portfolioStats;
-  Map<String, dynamic>? _spyStats;
+  String _selectedTimeframe = '1y';
   
+  // Benchmark state
+  String _selectedBenchmark = 'SPY';
+  final List<String> _benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM'];
+
+  // Statistikker fra backend
+  Map<String, dynamic>? _portfolioStats;
+  Map<String, dynamic>? _benchmarkStats;
+
   List<FlSpot> _portfolioSpots = [];
-  List<FlSpot> _spySpots = [];
+  List<FlSpot> _benchmarkSpots = []; 
   bool _isLoading = false;
 
   // --- API KALD TIL BACKEND ---
@@ -29,7 +35,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
     setState(() => _isLoading = true);
 
-    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); // Ret til din URL
+    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); 
     
     try {
       final response = await http.post(
@@ -39,25 +45,31 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
           "timeframe": _selectedTimeframe.toLowerCase(),
+          "benchmark": _selectedBenchmark, // Sender den valgte benchmark
         }),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         
-        
         setState(() {
+          // Opdater graf-punkter
           _portfolioSpots = (data['portfolio'] as List)
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
           
-          _spySpots = (data['spy'] as List)
+          // Her bruger vi nu kun 'benchmark' nøglen fra din nye backend
+          _benchmarkSpots = (data['benchmark'] as List)
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
+
+          // Opdater statistikker
+          _portfolioStats = data['portfolio_stats'];
+          _benchmarkStats = data['benchmark_stats'];
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching curve: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching data: $e")));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -76,35 +88,68 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // DROPDOWN
-                  StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(user.uid)
-                        .collection('saved_portfolios')
-                        .orderBy('timestamp', descending: true)
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const LinearProgressIndicator();
-                      final docs = snapshot.data!.docs;
+                  // SELECTOR ROW (Portfolio & Benchmark)
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(user.uid)
+                              .collection('saved_portfolios')
+                              .orderBy('timestamp', descending: true)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) return const LinearProgressIndicator();
+                            final docs = snapshot.data!.docs;
 
-                      return DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Select Portfolio', border: OutlineInputBorder()),
-                        value: _selectedPortfolioId,
-                        items: docs.map((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          return DropdownMenuItem(
-                            value: doc.id,
-                            child: Text("${data['type']} (${data['tickers'].length} stocks)"),
-                          );
-                        }).toList(),
-                        onChanged: (id) {
-                          _selectedPortfolioId = id;
-                          _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
-                          _fetchBacktestData();
-                        },
-                      );
-                    },
+                            return DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Portfolio', 
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              ),
+                              value: _selectedPortfolioId,
+                              items: docs.map((doc) {
+                                final data = doc.data() as Map<String, dynamic>;
+                                return DropdownMenuItem(
+                                  value: doc.id,
+                                  child: Text("${data['type']} (${data['tickers'].length} stocks)", style: const TextStyle(fontSize: 13)),
+                                );
+                              }).toList(),
+                              onChanged: (id) {
+                                setState(() {
+                                  _selectedPortfolioId = id;
+                                  _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
+                                });
+                                _fetchBacktestData();
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: 'Benchmark', 
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          value: _selectedBenchmark,
+                          items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _selectedBenchmark = val);
+                              _fetchBacktestData();
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 16),
@@ -132,18 +177,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
+
+                  // STATS TABLE (Valgfrit, men anbefalet da din backend nu sender det)
+                  if (_portfolioStats != null && !_isLoading) _buildStatsTable(theme),
+
+                  const SizedBox(height: 24),
 
                   // GRAF SEKTION
                   Expanded(
                     child: _isLoading 
                       ? const Center(child: CircularProgressIndicator())
                       : _portfolioSpots.isEmpty 
-                        ? const Center(child: Text("Select a portfolio to see historical growth (Base 100)"))
+                        ? const Center(child: Text("Select a portfolio to compare performance"))
                         : LineChart(_buildChartData(theme)),
                   ),
 
-                  // LEGENDE
                   if (_portfolioSpots.isNotEmpty) _buildLegend(theme),
                 ],
               ),
@@ -151,38 +200,64 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
+  // Ny hjælpe-widget til at vise statistikkerne fra backenden
+  Widget _buildStatsTable(ThemeData theme) {
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _statItem("Sharpe", _portfolioStats?['sharpe'], _benchmarkStats?['sharpe']),
+            _statItem("Vol", "${_portfolioStats?['volatility']}%", "${_benchmarkStats?['volatility']}%"),
+            _statItem("Return", "${_portfolioStats?['perf']}%", "${_benchmarkStats?['perf']}%"),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statItem(String label, dynamic portVal, dynamic benchVal) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        const SizedBox(height: 4),
+        Text("P: $portVal", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 11)),
+        Text("B: $benchVal", style: const TextStyle(color: Colors.orange, fontSize: 11)),
+      ],
+    );
+  }
+
+  // ... (Resten af dine metoder: _buildChartData, _buildLegend, _legendCircle er uændrede)
+  // Men husk at bruge _benchmarkSpots i _buildChartData i stedet for _spySpots.
+  
   LineChartData _buildChartData(ThemeData theme) {
     return LineChartData(
-              lineTouchData: LineTouchData(
-          touchTooltipData: LineTouchTooltipData(
-            // HER ER RETTELSEN:
-            getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
-            tooltipRoundedRadius: 8,
-            getTooltipItems: (List<LineBarSpot> touchedSpots) {
-              return touchedSpots.map((LineBarSpot touchedSpot) {
-                return LineTooltipItem(
-                  touchedSpot.y.toStringAsFixed(2),
-                  const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                );
-              }).toList();
-            },
-          ),
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
+          tooltipRoundedRadius: 8,
+          getTooltipItems: (List<LineBarSpot> touchedSpots) {
+            return touchedSpots.map((LineBarSpot touchedSpot) {
+              return LineTooltipItem(
+                touchedSpot.y.toStringAsFixed(2),
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              );
+            }).toList();
+          },
         ),
+      ),
       gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
       titlesData: FlTitlesData(
         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), // X-aksen er bare index (dage)
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10))),
-        ),
+        bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10)))),
       ),
       borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
       lineBarsData: [
-        // PORTFOLIO LINE
         LineChartBarData(
           spots: _portfolioSpots,
           isCurved: true,
@@ -191,9 +266,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           dotData: const FlDotData(show: false),
           belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.1)),
         ),
-        // SPY LINE
         LineChartBarData(
-          spots: _spySpots,
+          spots: _benchmarkSpots, // Opdateret variabelnavn
           isCurved: true,
           color: Colors.orange,
           barWidth: 2,
@@ -212,7 +286,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           _legendCircle(theme.colorScheme.primary, "Your Portfolio"),
           const SizedBox(width: 20),
-          _legendCircle(Colors.orange, "S&P 500 (SPY)"),
+          _legendCircle(Colors.orange, _selectedBenchmark),
         ],
       ),
     );

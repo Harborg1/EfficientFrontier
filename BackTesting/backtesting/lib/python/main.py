@@ -27,7 +27,9 @@ class BacktestRequest(BaseModel):
     tickers: List[str]
     weights: Dict[str, float]
     timeframe: str = "1y"
+    benchmark: str = "SPY"  # <--- Added this field
 
+    
 # --- ENDPOINT 1: OPTIMIZE
 
 @app.get("/optimize")
@@ -140,40 +142,35 @@ def get_portfolio_data(
 # --- ENDPOINT 2: Backtest
 
 @app.post("/backtest")
-@app.post("/backtest")
 async def backtest(data: BacktestRequest):
     try:
-        all_tickers = list(set(data.tickers + ['SPY']))
-        # Hent historisk data
+        # Use the requested benchmark instead of hardcoded 'SPY'
+        benchmark_ticker = data.benchmark.upper()
+        all_tickers = list(set(data.tickers + [benchmark_ticker]))
+        
+        # Fetch historical data
         df = yf.download(all_tickers, period=data.timeframe, auto_adjust=False)['Adj Close']
         
         if df.empty:
-            raise HTTPException(status_code=400, detail="Kunne ikke hente markedsdata")
+            raise HTTPException(status_code=400, detail="Could not retrieve market data")
 
         returns = df.pct_change().dropna()
         valid_tickers = [t for t in data.tickers if t in returns.columns]
         
-        # Beregn vægte (sikrer de summerer til 1)
+        # Calculate weights
         w_array = np.array([data.weights[t] for t in valid_tickers])
         w_array /= w_array.sum()
         
-        # Beregn daglige afkast
+        # Calculate daily returns for Portfolio and the selected Benchmark
         port_daily = returns[valid_tickers].dot(w_array)
-        spy_daily = returns['SPY']
+        benchmark_daily = returns[benchmark_ticker] # <--- Dynamic ticker index
 
         def calculate_kpis(daily_rets):
             cum_rets = (1 + daily_rets).cumprod()
-            
-            # 1. Total Afkast (YTD/Valgt periode)
             total_return = (cum_rets.iloc[-1] - 1) * 100
-            
-            # 2. Annualiseret Volatilitet
             vol = daily_rets.std() * np.sqrt(252) * 100
-            
-            # 3. Sharpe Ratio
             sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(252) if daily_rets.std() != 0 else 0
             
-            # 4. Max Drawdown
             peak = cum_rets.cummax()
             drawdown = (cum_rets - peak) / peak
             max_dd = drawdown.min() * 100
@@ -181,19 +178,22 @@ async def backtest(data: BacktestRequest):
             return {
                 "sharpe": round(float(sharpe), 2),
                 "volatility": round(float(vol), 2),
-                "ytd_perf": round(float(total_return), 2),
+                "perf": round(float(total_return), 2),
                 "max_drawdown": round(float(max_dd), 2)
             }
 
         return {
             "portfolio": [{"x": i, "y": round(val, 2)} for i, val in enumerate((1 + port_daily).cumprod() * 100)],
-            "spy": [{"x": i, "y": round(val, 2)} for i, val in enumerate((1 + spy_daily).cumprod() * 100)],
+            # We return this under the key 'benchmark' so the Flutter app knows where to look
+            "benchmark": [{"x": i, "y": round(val, 2)} for i, val in enumerate((1 + benchmark_daily).cumprod() * 100)],
             "portfolio_stats": calculate_kpis(port_daily),
-            "spy_stats": calculate_kpis(spy_daily)
+            "benchmark_stats": calculate_kpis(benchmark_daily)
         }
+    
     except Exception as e:
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @app.get("/tickers")
 def get_available_tickers():
     return {"tickers": TICKER_UNIVERSE}
