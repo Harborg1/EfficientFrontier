@@ -15,19 +15,31 @@ class PerformanceScreen extends StatefulWidget {
 class _PerformanceScreenState extends State<PerformanceScreen> {
   String? _selectedPortfolioId;
   Map<String, dynamic>? _selectedPortfolioData;
-  String _selectedTimeframe = '1y'; // Backend forventer små bogstaver: 1y, 5y osv.
+  String _selectedTimeframe = '1y'; 
   
+  // Data til grafen
   List<FlSpot> _portfolioSpots = [];
   List<FlSpot> _spySpots = [];
+  
+  // Data til statistik-tabellen
+  Map<String, dynamic>? _portfolioStats;
+  Map<String, dynamic>? _spyStats;
+  
   bool _isLoading = false;
 
   // --- API KALD TIL BACKEND ---
   Future<void> _fetchBacktestData() async {
     if (_selectedPortfolioData == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _portfolioSpots = [];
+      _spySpots = [];
+      _portfolioStats = null;
+      _spyStats = null;
+    });
 
-    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); // Ret til din URL
+    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); 
     
     try {
       final response = await http.post(
@@ -51,10 +63,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           _spySpots = (data['spy'] as List)
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
+
+          _portfolioStats = data['portfolio_stats'];
+          _spyStats = data['spy_stats'];
         });
+      } else {
+        throw Exception("Server returned ${response.statusCode}");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching curve: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Kunne ikke hente data: $e")),
+      );
     } finally {
       setState(() => _isLoading = false);
     }
@@ -66,14 +85,14 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Equity Curve Comparison")),
+      appBar: AppBar(title: const Text("Performance Analysis")),
       body: user == null
-          ? const Center(child: Text("Log in to see performance"))
+          ? const Center(child: Text("Log ind for at se din performance"))
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // DROPDOWN
+                  // DROPDOWN - Vælg gemt portefølje
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('users')
@@ -84,20 +103,26 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) return const LinearProgressIndicator();
                       final docs = snapshot.data!.docs;
+                      if (docs.isEmpty) return const Text("Ingen gemte porteføljer fundet.");
 
                       return DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Select Portfolio', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                          labelText: 'Vælg Portefølje', 
+                          border: OutlineInputBorder()
+                        ),
                         value: _selectedPortfolioId,
                         items: docs.map((doc) {
                           final data = doc.data() as Map<String, dynamic>;
                           return DropdownMenuItem(
                             value: doc.id,
-                            child: Text("${data['type']} (${data['tickers'].length} stocks)"),
+                            child: Text("${data['type']} (${data['tickers'].length} aktier)"),
                           );
                         }).toList(),
                         onChanged: (id) {
-                          _selectedPortfolioId = id;
-                          _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
+                          setState(() {
+                            _selectedPortfolioId = id;
+                            _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
+                          });
                           _fetchBacktestData();
                         },
                       );
@@ -129,66 +154,156 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
                   // GRAF SEKTION
                   Expanded(
+                    flex: 3,
                     child: _isLoading 
                       ? const Center(child: CircularProgressIndicator())
                       : _portfolioSpots.isEmpty 
-                        ? const Center(child: Text("Select a portfolio to see historical growth (Base 100)"))
+                        ? const Center(child: Text("Vælg en portefølje for at sammenligne med markedet"))
                         : LineChart(_buildChartData(theme)),
                   ),
 
-                  // LEGENDE
                   if (_portfolioSpots.isNotEmpty) _buildLegend(theme),
+
+                  const SizedBox(height: 16),
+
+                  // STATISTIK TABEL
+                  if (_portfolioStats != null && _spyStats != null)
+                    Expanded(
+                      flex: 2,
+                      child: _buildStatsTable(theme),
+                    ),
                 ],
               ),
             ),
     );
   }
 
+  Widget _buildStatsTable(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          _statHeader(),
+          const Divider(),
+          _statRow(
+            "Sharpe Ratio", 
+            _portfolioStats!['sharpe'], 
+            _spyStats!['sharpe'], 
+            higherIsBetter: true
+          ),
+          _statRow(
+            "Volatilitet", 
+            "${_portfolioStats!['volatility']}%", 
+            "${_spyStats!['volatility']}%", 
+            higherIsBetter: false, // Lavere risiko er bedre
+            rawPort: _portfolioStats!['volatility'],
+            rawSpy: _spyStats!['volatility'],
+          ),
+          _statRow(
+            "YTD Afkast", 
+            "${_portfolioStats!['ytd_perf']}%", 
+            "${_spyStats!['ytd_perf']}%", 
+            higherIsBetter: true
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statHeader() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text("Metric", style: TextStyle(fontWeight: FontWeight.bold))),
+          Expanded(child: Text("Portfolio", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
+          Expanded(child: Text("S&P 500", textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange))),
+        ],
+      ),
+    );
+  }
+
+  Widget _statRow(String label, dynamic port, dynamic spy, {required bool higherIsBetter, dynamic rawPort, dynamic rawSpy}) {
+    // Logik til at farve tallet grønt hvis det vinder over markedet
+    bool isWinner = false;
+    final valP = rawPort ?? port;
+    final valS = rawSpy ?? spy;
+    
+    if (higherIsBetter) {
+      isWinner = valP > valS;
+    } else {
+      isWinner = valP < valS;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text(label, style: const TextStyle(fontSize: 13))),
+          Expanded(
+            child: Text(
+              port.toString(), 
+              textAlign: TextAlign.right, 
+              style: TextStyle(
+                fontWeight: FontWeight.bold, 
+                color: isWinner ? Colors.green : Colors.redAccent
+              )
+            )
+          ),
+          Expanded(
+            child: Text(
+              spy.toString(), 
+              textAlign: TextAlign.right, 
+              style: const TextStyle(color: Colors.grey)
+            )
+          ),
+        ],
+      ),
+    );
+  }
+
   LineChartData _buildChartData(ThemeData theme) {
     return LineChartData(
-              lineTouchData: LineTouchData(
-          touchTooltipData: LineTouchTooltipData(
-            // HER ER RETTELSEN:
-            getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
-            tooltipRoundedRadius: 8,
-            getTooltipItems: (List<LineBarSpot> touchedSpots) {
-              return touchedSpots.map((LineBarSpot touchedSpot) {
-                return LineTooltipItem(
-                  touchedSpot.y.toStringAsFixed(2),
-                  const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                );
-              }).toList();
-            },
-          ),
-        ),
-      gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
-      titlesData: FlTitlesData(
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), // X-aksen er bare index (dage)
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10))),
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (spot) => Colors.blueGrey.withOpacity(0.9),
+          getTooltipItems: (spots) => spots.map((s) => LineTooltipItem(
+            "Kurs: ${s.y.toStringAsFixed(2)}", 
+            const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+          )).toList(),
         ),
       ),
-      borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
+      gridData: FlGridData(
+        show: true, 
+        drawVerticalLine: false,
+        getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)
+      ),
+      titlesData: const FlTitlesData(
+        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+      ),
+      borderData: FlBorderData(show: false),
       lineBarsData: [
-        // PORTFOLIO LINE
+        // PORTFOLIO KURVE
         LineChartBarData(
           spots: _portfolioSpots,
           isCurved: true,
           color: theme.colorScheme.primary,
-          barWidth: 3,
+          barWidth: 4,
           dotData: const FlDotData(show: false),
           belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.1)),
         ),
-        // SPY LINE
+        // S&P 500 KURVE
         LineChartBarData(
           spots: _spySpots,
           isCurved: true,
@@ -202,24 +317,21 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _buildLegend(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _legendCircle(theme.colorScheme.primary, "Your Portfolio"),
-          const SizedBox(width: 20),
-          _legendCircle(Colors.orange, "S&P 500 (SPY)"),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _legendItem(theme.colorScheme.primary, "Din Portefølje"),
+        const SizedBox(width: 20),
+        _legendItem(Colors.orange, "S&P 500 (SPY)"),
+      ],
     );
   }
 
-  Widget _legendCircle(Color color, String label) {
+  Widget _legendItem(Color color, String label) {
     return Row(children: [
       Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
       const SizedBox(width: 6),
-      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+      Text(label, style: const TextStyle(fontSize: 12)),
     ]);
   }
 }

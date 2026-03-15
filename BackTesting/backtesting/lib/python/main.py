@@ -140,43 +140,53 @@ def get_portfolio_data(
 # --- ENDPOINT 2: Backtest
 
 @app.post("/backtest")
+@app.post("/backtest")
 async def backtest(data: BacktestRequest):
     try:
-        # Hent data for porteføljen + SPY
-        all_tickers = list(set(data.tickers + ['SPY'])) # set fjerner dubletter
+        all_tickers = list(set(data.tickers + ['SPY']))
         df = yf.download(all_tickers, period=data.timeframe, auto_adjust=False)
         
         if df.empty or 'Adj Close' not in df:
             raise HTTPException(status_code=400, detail="Could not fetch market data")
 
-        # Vi isolerer Adj Close og fjerner NaN
         prices = df['Adj Close'].dropna()
         returns = prices.pct_change().dropna()
-        
-        # Vi sikrer os, at vi kun regner på de tickers, der rent faktisk er i dataen
         valid_tickers = [t for t in data.tickers if t in returns.columns]
         
-        if not valid_tickers:
-             raise HTTPException(status_code=400, detail="No valid tickers found in data")
-
-        # Beregn vægtet afkast (vi reskalerer vægte hvis en ticker mangler)
-        # Dette sikrer at summen af vægte stadig er 1.0 (100%)
+        # Beregn vægte
         current_weights = np.array([data.weights[t] for t in valid_tickers])
         current_weights /= current_weights.sum() 
         
-        # Matrix multiplikation er hurtigere end sum() loopet
-        port_returns = returns[valid_tickers].dot(current_weights)
-        
-        # Equity Curve (Base 100)
-        port_equity = ((1 + port_returns).cumprod() * 100).tolist()
-        spy_equity = ((1 + returns['SPY']).cumprod() * 100).tolist()
-        
+        # Daglige afkast
+        port_daily = returns[valid_tickers].dot(current_weights)
+        spy_daily = returns['SPY']
+
+        # Funktion til beregning af stats
+        def get_stats(daily_rets):
+            cum_ret = (1 + daily_rets).cumprod()
+            # Annualiseret Volatilitet
+            vol = daily_rets.std() * np.sqrt(252)
+            # Sharpe Ratio (Rf = 0%)
+            sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(252) if daily_rets.std() != 0 else 0
+            # YTD Performance (Afkast fra starten af indeværende år)
+            # Bemærk: Dette virker bedst hvis data dækker mindst fra 1. januar
+            current_year = pd.Timestamp.now().year
+            ytd_data = daily_rets[daily_rets.index.year == current_year]
+            ytd_perf = (1 + ytd_data).cumprod().iloc[-1] - 1 if not ytd_data.empty else 0
+            
+            return {
+                "sharpe": round(float(sharpe), 2),
+                "volatility": round(float(vol * 100), 2),
+                "ytd_perf": round(float(ytd_perf * 100), 2)
+            }
+
         return {
-            'portfolio': [{'x': i, 'y': round(val, 2)} for i, val in enumerate(port_equity)],
-            'spy': [{'x': i, 'y': round(val, 2)} for i, val in enumerate(spy_equity)]
+            "portfolio": [{'x': i, 'y': round(val, 2)} for i, val in enumerate((1 + port_daily).cumprod() * 100)],
+            "spy": [{'x': i, 'y': round(val, 2)} for i, val in enumerate((1 + spy_daily).cumprod() * 100)],
+            "portfolio_stats": get_stats(port_daily),
+            "spy_stats": get_stats(spy_daily)
         }
     except Exception as e:
-        print(f"Backtest Error: {e}") # Godt for debugging
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tickers")
@@ -186,4 +196,3 @@ def get_available_tickers():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    
