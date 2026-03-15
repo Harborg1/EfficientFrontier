@@ -121,7 +121,7 @@ def get_portfolio_data(
     def extract_weights(port_series):
         return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
 
-    # 6. Returner data (scatter_points er nu hele listen uden [::10])
+    # 6. Returner data (scatter_points er nu hele listen uden...
     return {
         "scatter_points": [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])],
         "max_sharpe": {
