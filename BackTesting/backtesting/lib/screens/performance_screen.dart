@@ -17,17 +17,14 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _selectedPortfolioData;
   String _selectedTimeframe = '1y'; 
   
-  // Data for the chart
   List<FlSpot> _portfolioSpots = [];
   List<FlSpot> _spySpots = [];
   
-  // Data for the statistics table
   Map<String, dynamic>? _portfolioStats;
   Map<String, dynamic>? _spyStats;
   
   bool _isLoading = false;
 
-  // --- API CALL TO BACKEND ---
   Future<void> _fetchBacktestData() async {
     if (_selectedPortfolioData == null) return;
 
@@ -39,7 +36,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       _spyStats = null;
     });
 
-    // Ensure this URL matches your deployed backend
     final url = Uri.parse('https://efficientfrontier.onrender.com/backtest'); 
     
     try {
@@ -57,7 +53,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         final data = jsonDecode(response.body);
         
         setState(() {
-          // Mapping historical equity curve points
           _portfolioSpots = (data['portfolio'] as List)
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
@@ -66,7 +61,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
               .toList();
 
-          // Saving calculated statistics
           _portfolioStats = data['portfolio_stats'];
           _spyStats = data['spy_stats'];
         });
@@ -94,8 +88,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // DROPDOWN - Select saved portfolio from Firestore
+                  // 1. Dropdown
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('users')
@@ -134,7 +129,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 16),
 
-                  // TIMEFRAME SELECTOR (1 Month, 6 Months, 1 Year, etc.)
+                  // 2. Timeframe chips
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -159,9 +154,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 24),
 
-                  // CHART SECTION - Historical Comparison
+                  // 3. Chart (Expanded to take available space)
                   Expanded(
-                    flex: 3,
                     child: _isLoading 
                       ? const Center(child: CircularProgressIndicator())
                       : _portfolioSpots.isEmpty 
@@ -171,14 +165,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   if (_portfolioSpots.isNotEmpty) _buildLegend(theme),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                  // STATISTICS TABLE - Key Performance Indicators (KPIs)
+                  // 4. Statistics Table (Removed Expanded to prevent RenderFlex error)
                   if (_portfolioStats != null && _spyStats != null)
-                    Expanded(
-                      flex: 2,
-                      child: _buildStatsTable(theme),
-                    ),
+                    _buildStatsTable(theme),
                 ],
               ),
             ),
@@ -187,43 +178,20 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Widget _buildStatsTable(ThemeData theme) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min, // Wrap content tightly
         children: [
           _statHeader(),
           const Divider(),
-          _statRow(
-            "Sharpe Ratio", 
-            _portfolioStats!['sharpe'], 
-            _spyStats!['sharpe'], 
-            higherIsBetter: true
-          ),
-          _statRow(
-            "Volatility", 
-            "${_portfolioStats!['volatility']}%", 
-            "${_spyStats!['volatility']}%", 
-            higherIsBetter: false, // Lower risk is better
-            rawPort: _portfolioStats!['volatility'],
-            rawSpy: _spyStats!['volatility'],
-          ),
-          _statRow(
-            "Max Drawdown", 
-            "${_portfolioStats!['max_drawdown']}%", 
-            "${_spyStats!['max_drawdown']}%", 
-            higherIsBetter: false, // Smaller loss (less negative) is better
-            rawPort: _portfolioStats!['max_drawdown'],
-            rawSpy: _spyStats!['max_drawdown'],
-          ),
-          _statRow(
-            "Cumulative Return", 
-            "${_portfolioStats!['ytd_perf']}%", 
-            "${_spyStats!['ytd_perf']}%", 
-            higherIsBetter: true
-          ),
+          _statRow("Sharpe Ratio", _portfolioStats!['sharpe'], _spyStats!['sharpe'], higherIsBetter: true),
+          _statRow("Volatility", "${_portfolioStats!['volatility']}%", "${_spyStats!['volatility']}%", higherIsBetter: false, rawPort: _portfolioStats!['volatility'], rawSpy: _spyStats!['volatility']),
+          _statRow("Max Drawdown", "${_portfolioStats!['max_drawdown']}%", "${_spyStats!['max_drawdown']}%", higherIsBetter: false, rawPort: _portfolioStats!['max_drawdown'], rawSpy: _spyStats!['max_drawdown']),
+          _statRow("Cumulative Return", "${_portfolioStats!['ytd_perf']}%", "${_spyStats!['ytd_perf']}%", higherIsBetter: true),
         ],
       ),
     );
@@ -243,7 +211,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _statRow(String label, dynamic port, dynamic spy, {required bool higherIsBetter, dynamic rawPort, dynamic rawSpy}) {
-    // Logic to color the text green if the portfolio outperforms the benchmark
     bool isWinner = false;
     final valP = rawPort ?? port;
     final valS = rawSpy ?? spy;
@@ -301,11 +268,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
         topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
         bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 45)),
       ),
       borderData: FlBorderData(show: false),
       lineBarsData: [
-        // PORTFOLIO EQUITY CURVE
         LineChartBarData(
           spots: _portfolioSpots,
           isCurved: true,
@@ -314,7 +280,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           dotData: const FlDotData(show: false),
           belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.1)),
         ),
-        // S&P 500 BENCHMARK CURVE
         LineChartBarData(
           spots: _spySpots,
           isCurved: true,
@@ -328,19 +293,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _buildLegend(ThemeData theme) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _legendItem(theme.colorScheme.primary, "Your Portfolio"),
-        const SizedBox(width: 20),
-        _legendItem(Colors.orange, "S&P 500 (SPY)"),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _legendItem(theme.colorScheme.primary, "Your Portfolio"),
+          const SizedBox(width: 20),
+          _legendItem(Colors.orange, "S&P 500 (SPY)"),
+        ],
+      ),
     );
   }
 
   Widget _legendItem(Color color, String label) {
     return Row(children: [
-      Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
       const SizedBox(width: 6),
       Text(label, style: const TextStyle(fontSize: 12)),
     ]);
