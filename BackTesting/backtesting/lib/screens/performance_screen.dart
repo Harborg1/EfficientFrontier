@@ -159,7 +159,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: ['1m', '6m', '1år', '5år', 'max'].map((time) {
+                        children: ['1mo', '6mo', '1y', '5y', 'max'].map((time) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4.0),
                           child: ChoiceChip(
