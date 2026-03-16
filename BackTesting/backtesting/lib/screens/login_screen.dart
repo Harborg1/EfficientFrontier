@@ -7,16 +7,16 @@ void main() {
   runApp(const LoginApp());
 }
 
-// Basic wrapper for the app
+// Grundlæggende wrapper for appen
 class LoginApp extends StatelessWidget {
   const LoginApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Simple Login Demo',
+      title: 'Simpel Login Demo',
       theme: ThemeData(
-        // Using Material 3 theme for modern look
+        // Bruger Material 3 tema for et moderne udseende
         useMaterial3: true,
         colorSchemeSeed: Colors.blue,
       ),
@@ -33,86 +33,86 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // 1. Create controllers to capture user input
+  // 1. Opret controllere til at fange brugerinput
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // 2. Create a global key that uniquely identifies the Form widget
-  // and allows validation of the form.
+  // 2. Opret en global nøgle, der unikt identificerer Form-widgetten
+  // og gør det muligt at validere formularen.
   final _formKey = GlobalKey<FormState>();
 
-  // State variable to handle password visibility toggling
-  bool _isPasswordVisible = false;
+  // Tilstandsvariabel til at håndtere visning/skjul af adgangskode
+  bool _erAdgangskodeSynlig = false;
 
   @override
   void dispose() {
-    // Clean up controllers when the widget is disposed.
+    // Ryd op i controllere, når widgetten fjernes.
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  // Function called when the login button is pressed
-  Future<void> _handleLogin() async {
-  // Validate the Form local state first
-  if (_formKey.currentState!.validate()) {
-    
-    // Show a loading indicator (Optional but recommended)
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      // 2. Call Firebase to authenticate the user
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      // 3. Close the loading indicator
-      if (mounted) Navigator.of(context).pop();
-
-      // 4. Navigate to the Welcome Screen
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      // 5. Handle Errors (Close loader first)
-      if (mounted) Navigator.of(context).pop();
+  // Funktion der kaldes, når der trykkes på login-knappen
+  Future<void> _haandterLogin() async {
+    // Valider formularens lokale tilstand først
+    if (_formKey.currentState!.validate()) {
       
-      String message = 'An error occurred. Please try again.';
-      if (e.code == 'user-not-found') {
-        message = 'No user found for that email.';
-      } else if (e.code == 'wrong-password') {
-        message = 'Wrong password provided.';
-      } else if (e.code == 'invalid-email') {
-        message = 'The email address is badly formatted.';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      // Vis en indlæsningsindikator (valgfrit men anbefales)
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-    } catch (e) {
-      if (mounted) Navigator.of(context).pop();
-      print(e); // For debugging
+
+      try {
+        // 2. Kald Firebase for at verificere brugeren
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        // 3. Luk indlæsningsindikatoren
+        if (mounted) Navigator.of(context).pop();
+
+        // 4. Naviger til Velkomstskærmen
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+          );
+        }
+      } on FirebaseAuthException catch (e) {
+        // 5. Håndter fejl (Luk indlæser først)
+        if (mounted) Navigator.of(context).pop();
+        
+        String besked = 'Der opstod en fejl. Prøv venligst igen.';
+        if (e.code == 'user-not-found') {
+          besked = 'Ingen bruger fundet med den e-mail.';
+        } else if (e.code == 'wrong-password') {
+          besked = 'Forkert adgangskode.';
+        } else if (e.code == 'invalid-email') {
+          besked = 'E-mail adressen er forkert formateret.';
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(besked), backgroundColor: Colors.redAccent),
+        );
+      } catch (e) {
+        if (mounted) Navigator.of(context).pop();
+        print(e); // Til fejlfinding
+      }
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Simple App Bar
+      // Simpel App Bar
       appBar: AppBar(
-        title: const Text("Welcome Back"),
+        title: const Text("Velkommen tilbage"),
         centerTitle: true,
       ),
-      // Center the content vertically on the screen
+      // Centrer indholdet lodret på skærmen
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -122,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // --- Logo or Header Icon ---
+                // --- Logo eller Overskriftsikon ---
                 const Icon(
                   Icons.lock_outline_rounded,
                   size: 100,
@@ -130,86 +130,86 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 40),
 
-                // --- Email Input Field ---
+                // --- E-mail inputfelt ---
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    labelText: 'Email Address',
+                    labelText: 'E-mail adresse',
                     prefixIcon: Icon(Icons.email_outlined),
                     border: OutlineInputBorder(),
                   ),
-                  // The validator receives the text that the user has entered.
+                  // Validatoren modtager den tekst, brugeren har indtastet.
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
+                      return 'Indtast venligst din e-mail';
                     }
-                    // Simple check for '@' symbol
+                    // Simpelt tjek for '@' symbolet
                     if (!value.contains('@')) {
-                       return 'Please enter a valid email';
+                      return 'Indtast venligst en gyldig e-mail';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
 
-                // --- Password Input Field ---
+                // --- Adgangskode inputfelt ---
                 TextFormField(
                   controller: _passwordController,
-                  obscureText: !_isPasswordVisible, // Toggles visibility
+                  obscureText: !_erAdgangskodeSynlig, // Skifter synlighed
                   textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'Adgangskode',
                     prefixIcon: const Icon(Icons.lock_outlined),
                     border: const OutlineInputBorder(),
-                    // The little eye icon button to show/hide password
+                    // Lille øje-ikon knap til at vise/skjule adgangskode
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _isPasswordVisible
+                        _erAdgangskodeSynlig
                             ? Icons.visibility_outlined
                             : Icons.visibility_off_outlined,
                       ),
                       onPressed: () {
-                        // Update state to toggle visibility variable
+                        // Opdater tilstand for at skifte synligheds-variabel
                         setState(() {
-                          _isPasswordVisible = !_isPasswordVisible;
+                          _erAdgangskodeSynlig = !_erAdgangskodeSynlig;
                         });
                       },
                     ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
+                      return 'Indtast venligst din adgangskode';
                     }
                     if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'Adgangskoden skal være på mindst 6 tegn';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 30),
 
-                // --- Login Button ---
+                // --- Login-knap ---
                 FilledButton(
-                  onPressed: _handleLogin,
+                  onPressed: _haandterLogin,
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     textStyle: const TextStyle(fontSize: 18),
                   ),
-                  child: const Text('Login'),
+                  child: const Text('Log ind'),
                 ),
                 
                 const SizedBox(height: 16),
-                // Simple "Forgot Password" or "Sign Up" link
+                // Simpelt "Glemt adgangskode" eller "Opret bruger" link
                 TextButton(
                   onPressed: () {
-                     Navigator.pushReplacement(
+                    Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(builder: (context) => const RegisterScreen()),
                     );
                   }, 
-                  child: const Text("Don't have an account? Sign up")
+                  child: const Text("Har du ikke en konto? Opret dig her")
                 )
               ],
             ),

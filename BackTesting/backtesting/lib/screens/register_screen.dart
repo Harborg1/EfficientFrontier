@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:backtesting/screens/login_screen.dart';
-import 'package:backtesting/screens/welcome_screen.dart'; // Import the new screen
+import 'package:backtesting/screens/welcome_screen.dart'; // Importér den nye skærm
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -14,65 +14,65 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   
-  final _nameController = TextEditingController();
+  final _navnController = TextEditingController();
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
+  final _adgangskodeController = TextEditingController();
+  final _bekraeftAdgangskodeController = TextEditingController();
 
-  bool _isPasswordVisible = false;
+  bool _erAdgangskodeSynlig = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _navnController.dispose();
     _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
+    _adgangskodeController.dispose();
+    _bekraeftAdgangskodeController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleSignUp() async {
-  if (_formKey.currentState!.validate()) {
-    try {
-      // 1. Create the user in Firebase Authentication
-      UserCredential userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+  Future<void> _haandterOpretBruger() async {
+    if (_formKey.currentState!.validate()) {
+      try {
+        // 1. Opret brugeren i Firebase Authentication
+        UserCredential brugerOplysninger = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _adgangskodeController.text.trim(),
+        );
 
-      // 2. Save the extra data (username) in Firestore
-      // We use the unique UID from Auth to name the document
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-        'username': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'createdAt': DateTime.now(),
-      });
+        // 2. Gem ekstra data (brugernavn) i Firestore
+        // Vi bruger det unikke UID fra Auth til at navngive dokumentet
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(brugerOplysninger.user!.uid)
+            .set({
+          'username': _navnController.text.trim(),
+          'email': _emailController.text.trim(),
+          'createdAt': DateTime.now(),
+        });
 
-      // 3. Navigate to Welcome Screen
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-          (route) => false,
+        // 3. Navigér til Velkomstskærmen
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+            (route) => false,
+          );
+        }
+      } on FirebaseAuthException catch (e) {
+        // Håndtér fejl (f.eks. hvis e-mailen allerede er i brug)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message ?? 'Der opstod en fejl')),
         );
       }
-    } on FirebaseAuthException catch (e) {
-      // Handle errors (like email already in use)
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'An error occurred')),
-      );
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Create Account"),
+        title: const Text("Opret konto"),
         centerTitle: true,
       ),
       body: Center(
@@ -90,83 +90,83 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 30),
 
-                // --- Username Field ---
+                // --- Brugernavn felt ---
                 TextFormField(
-                  controller: _nameController,
+                  controller: _navnController,
                   decoration: const InputDecoration(
-                    labelText: 'Username',
+                    labelText: 'Brugernavn',
                     prefixIcon: Icon(Icons.person_outline),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) => (value == null || value.isEmpty) ? 'Enter a username' : null,
+                  validator: (value) => (value == null || value.isEmpty) ? 'Indtast et brugernavn' : null,
                 ),
                 const SizedBox(height: 16),
 
-                // --- Email Field ---
+                // --- E-mail felt ---
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
-                    labelText: 'Email Address',
+                    labelText: 'E-mail adresse',
                     prefixIcon: Icon(Icons.email_outlined),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) => (value != null && value.contains('@')) ? null : 'Enter a valid email',
+                  validator: (value) => (value != null && value.contains('@')) ? null : 'Indtast en gyldig e-mail',
                 ),
                 const SizedBox(height: 16),
 
-                // --- Password Field ---
+                // --- Adgangskode felt ---
                 TextFormField(
-                  controller: _passwordController,
-                  obscureText: !_isPasswordVisible,
+                  controller: _adgangskodeController,
+                  obscureText: !_erAdgangskodeSynlig,
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'Adgangskode',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
-                      icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off),
-                      onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+                      icon: Icon(_erAdgangskodeSynlig ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setState(() => _erAdgangskodeSynlig = !_erAdgangskodeSynlig),
                     ),
                     border: const OutlineInputBorder(),
                   ),
-                  validator: (value) => (value != null && value.length >= 6) ? null : 'Min 6 characters required',
+                  validator: (value) => (value != null && value.length >= 6) ? null : 'Mindst 6 tegn påkrævet',
                 ),
                 const SizedBox(height: 16),
 
-                // --- Confirm Password Field ---
+                // --- Bekræft adgangskode felt ---
                 TextFormField(
-                  controller: _confirmPasswordController,
+                  controller: _bekraeftAdgangskodeController,
                   obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: 'Confirm Password',
+                    labelText: 'Bekræft adgangskode',
                     prefixIcon: Icon(Icons.lock_reset),
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
-                    if (value != _passwordController.text) return 'Passwords do not match';
+                    if (value != _adgangskodeController.text) return 'Adgangskoderne er ikke ens';
                     return null;
                   },
                 ),
                 const SizedBox(height: 24),
 
-                // --- Sign Up Button ---
+                // --- Opret konto knap ---
                 FilledButton(
-                  onPressed: _handleSignUp,
+                  onPressed: _haandterOpretBruger,
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: const Text('Sign Up'),
+                  child: const Text('Opret konto'),
                 ),
                 
-                // --- Switch to Login ---
+                // --- Skift til login ---
                 TextButton(
                   onPressed: () {
-                    // Navigate to the LoginScreen widget
+                    // Navigér til LoginScreen widgetten
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(builder: (context) => const LoginScreen()),
                     );
                   }, 
-                  child: const Text("Already have an account? Login"),
+                  child: const Text("Har du allerede en konto? Log ind"),
                 ),
               ],
             ),
