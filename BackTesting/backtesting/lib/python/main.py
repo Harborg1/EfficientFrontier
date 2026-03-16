@@ -5,6 +5,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
+import uvicorn
+import os
 
 app = FastAPI()
 
@@ -199,7 +201,7 @@ def get_available_tickers():
     return {"tickers": TICKER_UNIVERSE}
 
 if __name__ == "__main__":
-    
+
     port = int(os.environ.get("PORT", 8000))
     
     uvicorn.run(app, host="0.0.0.0", port=port)
