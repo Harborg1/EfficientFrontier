@@ -79,7 +79,7 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-               "Optimer din portefølje. Analyser risiko, maksimer afkast og test din strategi",
+               "Optimer din portefølje. Analyser risiko, maksimer afkast og test din strategi.",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15, 

@@ -81,9 +81,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Equity Curve Comparison")),
+      appBar: AppBar(title: const Text("Performance")),
       body: user == null
-          ? const Center(child: Text("Log in to see performance"))
+          ? const Center(child: Text("Log ind for at se performance data"))
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -107,7 +107,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                             return DropdownButtonFormField<String>(
                               isExpanded: true,
                               decoration: const InputDecoration(
-                                labelText: 'Portfolio', 
+                                labelText: 'Portefølje', 
                                 border: OutlineInputBorder(),
                                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               ),
@@ -116,7 +116,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                 final data = doc.data() as Map<String, dynamic>;
                                 return DropdownMenuItem(
                                   value: doc.id,
-                                  child: Text("${data['type']} (${data['tickers'].length} stocks)", style: const TextStyle(fontSize: 13)),
+                                  child: Text("${data['type']} (${data['tickers'].length} aktier)", style: const TextStyle(fontSize: 13)),
                                 );
                               }).toList(),
                               onChanged: (id) {
@@ -159,7 +159,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: ['1mo', '6mo', '1y', '5y', 'max'].map((time) {
+                      children: ['1m', '6m', '1år', '5år', 'max'].map((time) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4.0),
                           child: ChoiceChip(
@@ -189,7 +189,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     child: _isLoading 
                       ? const Center(child: CircularProgressIndicator())
                       : _portfolioSpots.isEmpty 
-                        ? const Center(child: Text("Select a portfolio to compare performance"))
+                        ? const Center(child: Text("Vælg en portefølje for at sammenligne med benchmark"))
                         : LineChart(_buildChartData(theme)),
                   ),
 
@@ -284,7 +284,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _legendCircle(theme.colorScheme.primary, "Your Portfolio"),
+          _legendCircle(theme.colorScheme.primary, "Din portefølje"),
           const SizedBox(width: 20),
           _legendCircle(Colors.orange, _selectedBenchmark),
         ],
