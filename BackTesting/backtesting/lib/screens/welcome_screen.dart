@@ -79,7 +79,7 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                "Your portfolio optimizer is ready. Analyze risk, maximize returns, and backtest your next move.",
+               "Optimer din portefølje. Analyser risiko, maksimer afkast og test din strategi",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15, 
@@ -102,7 +102,7 @@ class WelcomeScreen extends StatelessWidget {
                   },
                   icon: const Icon(Icons.analytics_outlined, size: 20),
                   label: const Text(
-                    "Launch Optimizer", 
+                    "Porteføljeoptimering", 
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -125,7 +125,7 @@ class WelcomeScreen extends StatelessWidget {
                   },
                   icon: const Icon(Icons.show_chart_rounded, size: 20),
                   label: const Text(
-                    "Show Market Performance",
+                    "Vis Markedsperformance",
                     style: TextStyle(fontSize: 16),
                   ),
                 ),
@@ -148,22 +148,12 @@ class WelcomeScreen extends StatelessWidget {
                   },
                   icon: const Icon(Icons.folder_special_outlined, size: 20),
                   label: const Text(
-                    "Portfolio History",
+                    "Porteføljehistorik",
                     style: TextStyle(fontSize: 16),
                   ),
                 ),
               ),
               const SizedBox(height: 40),
-              
-              const Text(
-                "MARKET DATA SYNCED",
-                style: TextStyle(
-                  fontSize: 10, 
-                  fontWeight: FontWeight.bold, 
-                  color: Colors.green, 
-                  letterSpacing: 2,
-                ),
-              ),
             ],
           ),
         ),
