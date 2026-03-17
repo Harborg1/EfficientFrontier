@@ -67,32 +67,34 @@ def get_portfolio_data(
     port_volatility = []
     stock_weights = []
 
-  # 1. Kør simuleringen
+# Initialiser lister
+    port_returns = []
+    port_volatility = []
+    stock_weights = []
+
     for _ in range(num_portfolios):
-        # Generer helt tilfældige tal (0 til 1) for hvert aktiv
+        # 1. Generer og normaliser vægte (din eksisterende logik)
         weights = np.random.rand(num_assets)
-        
-        # Sørg for at ingen vægt starter over max_weight (clipping)
-        # Vi skalerer dem så de passer indenfor 0 og max_weight
         weights = weights * max_weight 
         
-        # Nu skal vi tvinge dem til at summere til 1.0 uden at bryde max_weight
-        # Vi bruger en iterativ normalisering (ofte kaldet Sinkhorn-lignende approach)
         for _ in range(10):
-            weights /= weights.sum()  # Normaliser så sum = 1.0
+            weights /= weights.sum()
             if np.any(weights > max_weight):
-                weights = np.clip(weights, 0, max_weight) # Tving ned på max_weight
+                weights = np.clip(weights, 0, max_weight)
             else:
-                break # Stop hvis vi overholder alle krav
+                break
         
-        # Beregn Returns og Volatilitet (samme som før)
-        port_return = np.dot(weights, returns_annual)
-        port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
+        # 2. BEREGN (Brug nye navne her: 'p_ret' og 'p_vol')
+        p_ret = np.dot(weights, returns_annual)
+        p_vol = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
         
-        port_returns.append(port_return)
-        port_volatility.append(port_volatility)
+        # 3. APPEND til listerne
+        port_returns.append(p_ret)
+        port_volatility.append(p_vol)
         stock_weights.append(weights)
 
+        # FJERN den ekstra blok kode der stod herunder før, 
+        # da den var en dublet af beregningen ovenfor.
         
         # Nu er 'weights' 100% garanteret at overholde max_weight og summere til 1.0
         returns = np.dot(weights, returns_annual)
