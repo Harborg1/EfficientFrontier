@@ -41,9 +41,9 @@ def get_portfolio_data(
     num_portfolios: int = 20000  # <--- Nu er dette vores MÅL, ikke vores startskud        
 ):
     if not tickers:
-        selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN"]
+        selected = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']
     else:
-        selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
+        selected = list(set([t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]))
 
     selected = selected[:15] 
     selected.sort()
