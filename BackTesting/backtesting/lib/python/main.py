@@ -60,60 +60,43 @@ def get_portfolio_data(
         
     table = data['Adj Close'].dropna()
     returns_daily = table.pct_change().dropna()
-    returns_annual = returns_daily.mean() * 250
-    cov_annual = returns_daily.cov() * 250
+    
+    # Vi bruger .values her for at gøre NumPy matrix-beregninger lynhurtige
+    returns_annual = (returns_daily.mean() * 252).values 
+    cov_annual = (returns_daily.cov() * 252).values
 
-    port_returns = []
-    port_volatility = []
-    stock_weights = []
+    # --- 1. GENERER ALLE TILFÆLDIGE VÆGTE PÅ ÉN GANG ---
+    # Vi laver en matrix med 100.000 rækker og f.eks. 15 kolonner (aktier)
+    all_weights = np.random.rand(num_portfolios, num_assets)
+    
+    # --- 2. NORMALISER ---
+    # Vi dividerer hver række med sin egen sum, så alle rækker summerer til 1.0 (100%)
+    all_weights = all_weights / all_weights.sum(axis=1, keepdims=True)
+    
+    # --- 3. FILTRER ---
+    # Vi finder de rækker, hvor ALLE vægte er mindre end eller lig med max_weight
+    valid_mask = np.all(all_weights <= max_weight, axis=1)
+    valid_weights = all_weights[valid_mask]
+    
+    # Tjek om vi smed dem alle sammen ud
+    if len(valid_weights) == 0:
+        return {"error": f"Ud af {num_portfolios} simuleringer var der ingen, der ramte under max-vægten på {max_weight*100}%. Prøv flere simuleringer."}
 
-# Initialiser lister
-    port_returns = []
-    port_volatility = []
-    stock_weights = []
+    # --- 4. BEREGN PERFORMANCE FOR DE GODKENDTE ---
+    # Matrix-multiplikation giver os afkast og risiko for alle overlevende porteføljer på én gang
+    port_returns = np.dot(valid_weights, returns_annual)
+    # Dette er den hurtige matrix-måde at skrive w * Cov * w.T for mange rækker
+    port_volatility = np.sqrt(np.sum(np.dot(valid_weights, cov_annual) * valid_weights, axis=1))
 
-    for _ in range(num_portfolios):
-        # 1. Generer og normaliser vægte (din eksisterende logik)
-        weights = np.random.rand(num_assets)
-        weights = weights * max_weight 
-        weights /= np.sum(weights)  # Normaliser så de summer til 1.0
-        # 2. BEREGN (Brug nye navne her: 'p_ret' og 'p_vol')
-        p_ret = np.dot(weights, returns_annual)
-        p_vol = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
-        
-        # 3. APPEND til listerne
-        port_returns.append(p_ret)
-        port_volatility.append(p_vol)
-        stock_weights.append(weights)
-
-        # FJERN den ekstra blok kode der stod herunder før, 
-        # da den var en dublet af beregningen ovenfor.
-
-        # Nu er 'weights' 100% garanteret at overholde max_weight og summere til 1.0
-        returns = np.dot(weights, returns_annual)
-        volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
-        
-        port_returns.append(returns)
-        port_volatility.append(volatility)
-        stock_weights.append(weights)
-
-    # 2. Opbyg portfolio dictionary (ligesom din klasse)
+    # --- 5. OPBYG DATAFRAME ---
     portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
     for counter, symbol in enumerate(selected):
-        portfolio[symbol+' weight'] = [weight[counter] for weight in stock_weights]
+        portfolio[symbol+' weight'] = valid_weights[:, counter]
 
-    # 3. Omdan til DataFrame og beregn Sharpe
     df = pd.DataFrame(portfolio)
     df['Sharpe'] = df['Returns'] / df['Volatility']
 
-    # 4. Filtrer baseret på max_weight efter simuleringen
-    weight_cols = [s + ' weight' for s in selected]
-    df = df[df[weight_cols].max(axis=1) <= max_weight]
-    
-    if df.empty:
-        return {"error": f"None of the {num_portfolios} portfolios met the max_weight constraint of {max_weight}."}
-
-    # 5. Find vinderne
+    # Find vinderne
     best_sharpe_idx = df['Sharpe'].idxmax()
     max_sharpe_port = df.loc[best_sharpe_idx]
 
@@ -123,7 +106,7 @@ def get_portfolio_data(
     def extract_weights(port_series):
         return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
 
-    # 6. Returner data (scatter_points er nu hele listen uden...
+    # Returner data
     return {
         "scatter_points": [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])],
         "max_sharpe": {
@@ -138,7 +121,6 @@ def get_portfolio_data(
             "weights": extract_weights(min_vol_port)
         }
     }
-
 # --- ENDPOINT 2: Backtest
 
 @app.post("/backtest")
