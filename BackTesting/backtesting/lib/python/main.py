@@ -76,14 +76,7 @@ def get_portfolio_data(
         # 1. Generer og normaliser vægte (din eksisterende logik)
         weights = np.random.rand(num_assets)
         weights = weights * max_weight 
-        
-        for _ in range(10):
-            weights /= weights.sum()
-            if np.any(weights > max_weight):
-                weights = np.clip(weights, 0, max_weight)
-            else:
-                break
-        
+        weights /= np.sum(weights)  # Normaliser så de summer til 1.0
         # 2. BEREGN (Brug nye navne her: 'p_ret' og 'p_vol')
         p_ret = np.dot(weights, returns_annual)
         p_vol = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
@@ -95,7 +88,7 @@ def get_portfolio_data(
 
         # FJERN den ekstra blok kode der stod herunder før, 
         # da den var en dublet af beregningen ovenfor.
-        
+
         # Nu er 'weights' 100% garanteret at overholde max_weight og summere til 1.0
         returns = np.dot(weights, returns_annual)
         volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
