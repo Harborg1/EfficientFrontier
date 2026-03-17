@@ -23,7 +23,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   String _selectedTimeframe = '5 år';
 
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
-  final List<int> _portfolioOptions = [1000, 5000, 10000, 20000];
+  final List<int> _portfolioOptions = [20000,40000, 70000, 100000];
   final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];
   
   List<ScatterSpot> scatterSpots = [];
