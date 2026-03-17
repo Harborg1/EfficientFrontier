@@ -67,28 +67,31 @@ def get_portfolio_data(
     port_volatility = []
     stock_weights = []
 
-    # 1. Kør simuleringen (uden 'continue' check)
+  # 1. Kør simuleringen
     for _ in range(num_portfolios):
-        # 1. Generer vægte der altid summerer til 1.0 (Dirichlet er god til dette)
-        weights = np.random.dirichlet(np.ones(num_assets), size=1)[0]
-
-        # 2. "Rescale" logik: Hvis en vægt er over max_weight, 
-        # så tvinger vi den ned og omfordeler resten proportionalt.
-        # Vi kører det et par gange for at sikre, at alt overholdes.
-        for _ in range(10): 
+        # Generer helt tilfældige tal (0 til 1) for hvert aktiv
+        weights = np.random.rand(num_assets)
+        
+        # Sørg for at ingen vægt starter over max_weight (clipping)
+        # Vi skalerer dem så de passer indenfor 0 og max_weight
+        weights = weights * max_weight 
+        
+        # Nu skal vi tvinge dem til at summere til 1.0 uden at bryde max_weight
+        # Vi bruger en iterativ normalisering (ofte kaldet Sinkhorn-lignende approach)
+        for _ in range(10):
+            weights /= weights.sum()  # Normaliser så sum = 1.0
             if np.any(weights > max_weight):
-                # Find dem der er for store
-                too_high = weights > max_weight
-                excess = weights[too_high] - max_weight
-                weights[too_high] = max_weight
-                
-                # Find dem der er under grænsen og kan tage imod det overskydende
-                too_low = weights < max_weight
-                if total_excess := excess.sum():
-                    # Omfordel proportionalt til dem, der har plads
-                    weights[too_low] += (weights[too_low] / weights[too_low].sum()) * total_excess
+                weights = np.clip(weights, 0, max_weight) # Tving ned på max_weight
             else:
-                break
+                break # Stop hvis vi overholder alle krav
+        
+        # Beregn Returns og Volatilitet (samme som før)
+        port_return = np.dot(weights, returns_annual)
+        port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_annual, weights)))
+        
+        port_returns.append(port_return)
+        port_volatility.append(port_volatility)
+        stock_weights.append(weights)
 
         
         # Nu er 'weights' 100% garanteret at overholde max_weight og summere til 1.0
@@ -205,4 +208,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     
     uvicorn.run(app, host="0.0.0.0", port=port)
-
