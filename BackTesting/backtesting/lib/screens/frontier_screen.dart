@@ -17,7 +17,7 @@ class FrontierScreen extends StatefulWidget {
 class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
-  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA'];
+  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']; // Pre-populated with 8 popular tickers for better initial visualization
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 5000;
   String _selectedTimeframe = '5 år';
@@ -29,6 +29,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
+
   
   bool isLoading = false;
   bool showSimulation = false;
