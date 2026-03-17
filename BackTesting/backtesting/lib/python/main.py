@@ -33,17 +33,16 @@ class BacktestRequest(BaseModel):
 
     
 # --- ENDPOINT 1: OPTIMIZE
-
 @app.get("/optimize")
 def get_portfolio_data(
     tickers: str = "", 
     max_weight: float = 0.30,            
     start_date: str = "2019-01-01",      
     end_date: str = "2025-12-31",        
-    num_portfolios: int = 100000          
+    num_portfolios: int = 20000  # <--- Nu er dette vores MÅL, ikke vores startskud        
 ):
     if not tickers:
-        selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "NFLX", "NVDA"]
+        selected = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN"]
     else:
         selected = [t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]
 
@@ -51,8 +50,9 @@ def get_portfolio_data(
     selected.sort()
     num_assets = len(selected)
 
+    # Sikkerhedstjek: Kan det overhovedet lade sig gøre matematisk?
     if num_assets * max_weight < 1.0:
-        return {"error": f"Cannot sum to 100% with {num_assets} assets capped at {max_weight*100}%. Increase the max weight."}
+        return {"error": f"Kan ikke summere til 100% med {num_assets} aktier og et max på {max_weight*100}%."}
     
     data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
     if data.empty or 'Adj Close' not in data:
@@ -61,34 +61,46 @@ def get_portfolio_data(
     table = data['Adj Close'].dropna()
     returns_daily = table.pct_change().dropna()
     
-    # Vi bruger .values her for at gøre NumPy matrix-beregninger lynhurtige
-    returns_annual = (returns_daily.mean() * 252).values 
-    cov_annual = (returns_daily.cov() * 252).values
+    # Vi bruger .values for at køre rene, lynhurtige NumPy beregninger
+    returns_annual = (returns_daily.mean() * 250).values 
+    cov_annual = (returns_daily.cov() * 250).values
 
-    # --- 1. GENERER ALLE TILFÆLDIGE VÆGTE PÅ ÉN GANG ---
-    # Vi laver en matrix med 100.000 rækker og f.eks. 15 kolonner (aktier)
-    all_weights = np.random.rand(num_portfolios, num_assets)
-    
-    # --- 2. NORMALISER ---
-    # Vi dividerer hver række med sin egen sum, så alle rækker summerer til 1.0 (100%)
-    all_weights = all_weights / all_weights.sum(axis=1, keepdims=True)
-    
-    # --- 3. FILTRER ---
-    # Vi finder de rækker, hvor ALLE vægte er mindre end eller lig med max_weight
-    valid_mask = np.all(all_weights <= max_weight, axis=1)
-    valid_weights = all_weights[valid_mask]
-    
-    # Tjek om vi smed dem alle sammen ud
-    if len(valid_weights) == 0:
-        return {"error": f"Ud af {num_portfolios} simuleringer var der ingen, der ramte under max-vægten på {max_weight*100}%. Prøv flere simuleringer."}
+    # --- 1. BATCHED REJECTION SAMPLING ---
+    valid_weights_list = []
+    batch_size = 50000  # Vi skyder med spredehagl (50k ad gangen)
+    max_attempts = 100  # Sikkerhedsventil (så API'et ikke hænger i en uendelig løkke)
+    attempts = 0
+    total_valid = 0
 
-    # --- 4. BEREGN PERFORMANCE FOR DE GODKENDTE ---
-    # Matrix-multiplikation giver os afkast og risiko for alle overlevende porteføljer på én gang
+    while total_valid < num_portfolios and attempts < max_attempts:
+        attempts += 1
+        
+        # Dirichlet er den matematisk perfekte måde at generere vægte, der summerer til 1
+        w_batch = np.random.dirichlet(np.ones(num_assets), size=batch_size)
+        
+        # Find dem, hvor ALLE aktier overholder max_weight
+        mask = np.all(w_batch <= max_weight, axis=1)
+        valid_ones = w_batch[mask]
+        
+        if len(valid_ones) > 0:
+            valid_weights_list.append(valid_ones)
+            total_valid += len(valid_ones)
+
+    if not valid_weights_list:
+        return {"error": "Kravene var så stramme, at vi ikke kunne finde nogen lovlige porteføljer. Prøv at hæve max_weight."}
+
+    # Saml alle de godkendte fra vores batches i én stor matrix
+    valid_weights = np.vstack(valid_weights_list)
+    
+    # Klip det overskydende af, så vi har PRÆCIS det antal, brugeren bad om (f.eks. 20.000)
+    valid_weights = valid_weights[:num_portfolios]
+
+    # --- 2. BEREGN PERFORMANCE FOR DE GODKENDTE ---
+    # Matrix-multiplikation (Lynhurtigt for alle overlevende porteføljer på én gang)
     port_returns = np.dot(valid_weights, returns_annual)
-    # Dette er den hurtige matrix-måde at skrive w * Cov * w.T for mange rækker
     port_volatility = np.sqrt(np.sum(np.dot(valid_weights, cov_annual) * valid_weights, axis=1))
 
-    # --- 5. OPBYG DATAFRAME ---
+    # --- 3. OPBYG DATAFRAME ---
     portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
     for counter, symbol in enumerate(selected):
         portfolio[symbol+' weight'] = valid_weights[:, counter]
