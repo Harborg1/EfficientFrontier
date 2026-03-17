@@ -40,10 +40,13 @@ def get_portfolio_data(
     end_date: str = "2025-12-31",        
     num_portfolios: int = 20000  # <--- Nu er dette vores MÅL, ikke vores startskud        
 ):
+   # 1. DEFINER SELECTED FØRSTE GANG (Baseret på brugerens input)
     if not tickers:
         selected = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']
     else:
-        selected = list(set([t.strip().upper() for t in tickers.split(",") if t.strip() and t.strip().upper() in TICKER_UNIVERSE]))
+        # Rens input og fjern duplikater
+        selected = list(set([t.strip().upper() for t in tickers.split(",") if t.strip()]))
+
 
     selected = selected[:15] 
     selected.sort()
@@ -56,7 +59,12 @@ def get_portfolio_data(
     data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
     if data.empty or 'Adj Close' not in data:
         return {"error": "Could not retrieve data for the specified tickers."}
-        
+    
+    table = data['Adj Close'].dropna(axis=1, how='all').dropna()
+    
+    selected = list(table.columns) 
+    num_assets = len(selected)
+
     table = data['Adj Close'].dropna()
     returns_daily = table.pct_change().dropna()
     
