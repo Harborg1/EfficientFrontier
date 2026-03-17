@@ -64,8 +64,7 @@ def get_portfolio_data(
     
     selected = list(table.columns) 
     num_assets = len(selected)
-
-    table = data['Adj Close'].dropna()
+    
     returns_daily = table.pct_change().dropna()
     
     # Vi bruger .values for at køre rene, lynhurtige NumPy beregninger
