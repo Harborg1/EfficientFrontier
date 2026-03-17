@@ -17,11 +17,11 @@ class FrontierScreen extends StatefulWidget {
 class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
-  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']; // Pre-populated with 8 popular tickers for better initial visualization
+  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']; // Pre-populated with 8 popular tickers for better initial visualization
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 5000;
   String _selectedTimeframe = '5 år';
-
+  
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000,40000, 70000, 100000];
   final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];

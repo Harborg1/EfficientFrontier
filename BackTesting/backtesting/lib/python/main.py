@@ -7,7 +7,6 @@ import numpy as np
 from typing import List, Dict, Optional
 import uvicorn
 import os
-
 app = FastAPI()
 
 app.add_middleware(
