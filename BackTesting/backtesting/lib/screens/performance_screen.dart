@@ -154,28 +154,27 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                   const SizedBox(height: 16),
 
-                  // TIMEFRAME SELECTOR
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                        children: ['1mo', '6mo', '1y', '5y', 'max'].map((time) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                          child: ChoiceChip(
-                            label: Text(time.toUpperCase()),
-                            selected: _selectedTimeframe == time,
-                            onSelected: (val) {
-                              if (val) {
-                                setState(() => _selectedTimeframe = time);
-                                _fetchBacktestData();
-                              }
-                            },
-                          ),
+                 // TIMEFRAME SELECTOR (Som Dropdown)
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'Tidshorisont',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      value: _selectedTimeframe,
+                      items: ['1mo', '6mo', 'ytd', '1y', '5y', 'max'].map((time) {
+                        return DropdownMenuItem(
+                          value: time,
+                          child: Text(time.toUpperCase()),
                         );
                       }).toList(),
+                      onChanged: (val) {
+                        if (val != null && val != _selectedTimeframe) {
+                          setState(() => _selectedTimeframe = val);
+                          _fetchBacktestData(); // Henter automatisk ny data, når brugeren skifter
+                        }
+                      },
                     ),
-                  ),
 
                   const SizedBox(height: 24),
 
@@ -211,8 +210,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _statItem("Sharpe", _portfolioStats?['sharpe'], _benchmarkStats?['sharpe']),
-            _statItem("Vol", "${_portfolioStats?['volatility']}%", "${_benchmarkStats?['volatility']}%"),
-            _statItem("Return", "${_portfolioStats?['perf']}%", "${_benchmarkStats?['perf']}%"),
+            _statItem("Volatilitet", "${_portfolioStats?['volatility']}%", "${_benchmarkStats?['volatility']}%"),
+            _statItem("Afkast", "${_portfolioStats?['perf']}%", "${_benchmarkStats?['perf']}%"),
           ],
         ),
       ),

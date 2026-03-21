@@ -17,6 +17,20 @@ class FrontierScreen extends StatefulWidget {
 class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  final List<String> _tickerUniverse = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "BRK-B", "JPM", "V", 
+    "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC", "VZ", "KO", "PFE", 
+    "INTC", "CMCSA", "NFLX", "ADBE", "T", "ABT", "PEP", "XOM", "CSCO"
+];
+
+@override
+  void dispose() {
+    _tickerController.dispose();
+    _focusNode.dispose(); // <-- Vigtigt for at undgå memory leaks
+    super.dispose();
+  }
+
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']; // Pre-populated with 8 popular tickers for better initial visualization
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
@@ -294,23 +308,95 @@ class _FrontierScreenState extends State<FrontierScreen> {
   Widget _buildInputSection() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: TextField(
-        controller: _tickerController,
-        decoration: InputDecoration(
-          isDense: true, labelText: "Tilføj aktiesymbol (f.eks. NVDA, AMZN)",
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.add_circle),
-            onPressed: () {
-              if (_tickerController.text.isNotEmpty) {
-                setState(() {
-                  selectedTickers.add(_tickerController.text.toUpperCase().trim());
-                  _tickerController.clear();
-                });
+      child: RawAutocomplete<String>(
+        focusNode: _focusNode,
+        textEditingController: _tickerController,
+        // 1. Filtreringslogik
+        optionsBuilder: (TextEditingValue textEditingValue) {
+          final input = textEditingValue.text.toUpperCase().trim();
+          if (input.isEmpty) {
+            return const Iterable<String>.empty();
+          }
+          // Vis kun aktier der matcher input, og som IKKE allerede er i selectedTickers
+          return _tickerUniverse.where((ticker) {
+            return ticker.contains(input) && !selectedTickers.contains(ticker);
+          });
+        },
+        // 2. Hvad der sker når brugeren trykker på et forslag
+        onSelected: (String selection) {
+          setState(() {
+            selectedTickers.add(selection);
+          });
+          _tickerController.clear(); // Ryd feltet
+          _focusNode.requestFocus(); // Hold tastaturet åbent, så man hurtigt kan tilføje flere
+        },
+        // 3. Selve tekstfeltet
+        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+          return TextField(
+            controller: controller,
+            focusNode: focusNode,
+            onSubmitted: (value) {
+              if (value.isNotEmpty) {
+                final newTicker = value.toUpperCase().trim();
+                // Tjek at den ikke allerede findes, uanset om det er via tryk eller enter-knap
+                if (!selectedTickers.contains(newTicker)) {
+                  setState(() {
+                    selectedTickers.add(newTicker);
+                    controller.clear();
+                  });
+                }
               }
+              onFieldSubmitted();
             },
-          ),
-          border: const OutlineInputBorder(),
-        ),
+            decoration: InputDecoration(
+              isDense: true, 
+              labelText: "Søg og tilføj aktiesymbol (f.eks. NVDA)",
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.add_circle),
+                onPressed: () {
+                  if (controller.text.isNotEmpty) {
+                    final newTicker = controller.text.toUpperCase().trim();
+                    if (!selectedTickers.contains(newTicker)) {
+                      setState(() {
+                        selectedTickers.add(newTicker);
+                        controller.clear();
+                      });
+                    }
+                  }
+                },
+              ),
+              border: const OutlineInputBorder(),
+            ),
+          );
+        },
+        // 4. Designet af dropdown-menuen
+        optionsViewBuilder: (context, onSelected, options) {
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4.0,
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final String option = options.elementAt(index);
+                    return InkWell(
+                      onTap: () => onSelected(option),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(option, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
