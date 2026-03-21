@@ -96,7 +96,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
     
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 180));
+      final response = await http.get(url).timeout(const Duration(seconds: 120));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
