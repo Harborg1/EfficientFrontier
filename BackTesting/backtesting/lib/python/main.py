@@ -193,6 +193,75 @@ async def backtest(data: BacktestRequest):
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class SimulationRequest(BaseModel):
+    tickers: List[str]
+    weights: Dict[str, float]
+    timeframe: str = "2y"  # Hvor meget historik skal vi lære fra?
+    days_to_sim: int = 252 # Hvor mange handelsdage skal vi spå om?
+    simulations: int = 1000
+
+@app.post("/simulate")
+async def simulate_portfolio(data: SimulationRequest):
+    try:
+        # 1. Hent historisk data for at få "opskriften" på de daglige afkast
+        df = yf.download(data.tickers, period=data.timeframe, auto_adjust=False)['Adj Close']
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Kunne ikke hente historik til simulation")
+
+        # 2. Beregn porteføljens historiske dagsafkast
+        returns = df.pct_change().dropna()
+        valid_tickers = [t for t in data.tickers if t in returns.columns]
+        
+        w_array = np.array([data.weights[t] for t in valid_tickers])
+        w_array /= w_array.sum()
+        
+        # Dette er vores "pulje" af historiske hændelser
+        port_daily_history = returns[valid_tickers].dot(w_array).values
+
+        # 3. Bootstrapping: Træk tilfældige dage fra historikken
+        # Matrix: [antal dage frem] x [antal simulationer]
+        sim_rets = np.random.choice(
+            port_daily_history, 
+            size=(data.days_to_sim, data.simulations), 
+            replace=True
+        )
+
+        # 4. Beregn kumulativ vækst (vi starter ved kurs 100)
+        # np.cumprod(1 + r) regner rentes rente effekten
+        paths = np.cumprod(1 + sim_rets, axis=0) * 100
+        
+        # Tilføj startpunktet (dag 0 = 100) til alle percentiler
+        def prepare_path(p_values):
+            return [100.0] + [round(float(v), 2) for v in p_values]
+
+        # 5. Udregn de statistiske bånd (viften)
+        # Vi tager tværsnittet af alle 1000 simulationer for hver dag
+        forecast = {
+            "p95": prepare_path(np.percentile(paths, 95, axis=1)),
+            "p75": prepare_path(np.percentile(paths, 75, axis=1)),
+            "median": prepare_path(np.percentile(paths, 50, axis=1)),
+            "p25": prepare_path(np.percentile(paths, 25, axis=1)),
+            "p5": prepare_path(np.percentile(paths, 5, axis=1)),
+        }
+
+        # 6. Ekstra indsigt: Sandsynlighed for tab
+        final_values = paths[-1]
+        prob_loss = float(np.mean(final_values < 100) * 100)
+
+        return {
+            "days": list(range(data.days_to_sim + 1)),
+            "forecast": forecast,
+            "risk_metrics": {
+                "prob_of_loss_percent": round(prob_loss, 2),
+                "expected_final_value": round(float(np.mean(final_values)), 2),
+                "worst_case_cvar_5pct": round(float(np.mean(final_values[final_values <= np.percentile(final_values, 5)])), 2)
+            }
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/tickers")
 def get_available_tickers():
