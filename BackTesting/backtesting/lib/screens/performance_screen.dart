@@ -33,6 +33,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _riskMetrics;
   bool _isSimulating = false;
 
+  
+  String _formatDateLabel(double value, String? startStr) {
+  if (startStr == null) return "";
+  try {
+    DateTime startDate = DateTime.parse(startStr);
+    // Vi antager at hver 'x' er en kalenderdag (forenkling)
+    // For mere præcision med handelsdage kræves dato-liste fra backend
+    DateTime date = startDate.add(Duration(days: value.toInt()));
+    
+    // Manuel formatering (eller brug 'intl' pakken hvis du har den)
+    List<String> months = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
+    return "${months[date.month - 1]} ${date.year.toString().substring(2)}";
+  } catch (e) {
+    return "";
+  }
+}
+
   // --- API KALD TIL BACKEND (Backtest - Out of Sample) ---
   Future<void> _fetchBacktestData() async {
     if (_selectedPortfolioData == null) return;
@@ -187,7 +204,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                             // Vi tilføjer datoen i titlen, så brugeren kan se, hvornår den blev trænet til
                             return DropdownMenuItem(
                               value: doc.id,
-                              child: Text("${data['type']} (${data['tickers'].length} aktier) - Trænet til: ${data['train_end_date'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
+                              child: Text("${data['type']} (${data['tickers'].length} aktier) - Trænet i perioden: ${data['train_start_date'] ?? 'N/A'} - ${data['train_end_date'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
                             );
                           }).toList(),
                           onChanged: (id) {
@@ -325,11 +342,27 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         ),
       ),
       gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
+      
       titlesData: FlTitlesData(
         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10)))),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: 60, // Vis dato ca. hver 2. måned
+            getTitlesWidget: (value, meta) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  _formatDateLabel(value, _selectedPortfolioData?['train_end_date']),
+                  style: const TextStyle(fontSize: 9, color: Colors.grey),
+                ),
+              );
+            },
+          ),
+        ),
       ),
       borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
       lineBarsData: [
@@ -413,27 +446,57 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _buildSimulationChart(ThemeData theme) {
-    return LineChart(
-      LineChartData(
-        lineBarsData: [
-          _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
-          _simLayer(spots: _simulationPaths['p25']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
-          _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
-          _simLayer(spots: _simulationPaths['p5']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
-          _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
-        ],
-        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
-        titlesData: FlTitlesData(
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10)))),
+  // Vi definerer dags dato som startpunkt for tidsaksen i prognosen
+  final String todayStr = DateTime.now().toIso8601String().substring(0, 10);
+  return LineChart(
+    LineChartData(
+      lineBarsData: [
+        _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
+        _simLayer(spots: _simulationPaths['p25']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
+        _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
+        _simLayer(spots: _simulationPaths['p5']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
+        _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
+      ],
+      titlesData: FlTitlesData(
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true, 
+            reservedSize: 40, 
+            getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10))
+          )
         ),
-        borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
-        lineTouchData: const LineTouchData(enabled: false), 
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: 60, // Samme interval som i backtest (ca. hver 2. måned)
+            getTitlesWidget: (value, meta) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  _formatDateLabel(value, todayStr), // Bruger den fælles formaterings-funktion
+                  style: const TextStyle(fontSize: 9, color: Colors.grey),
+                ),
+              );
+            },
+          ),
+        ),
       ),
-    );
-  }
+      gridData: FlGridData(
+        show: true, 
+        drawVerticalLine: false, 
+        getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)
+      ),
+      borderData: FlBorderData(
+        show: true, 
+        border: Border.all(color: Colors.grey.withOpacity(0.2))
+      ),
+      lineTouchData: const LineTouchData(enabled: false), 
+    ),
+  );
+}
 
   Widget _buildSimulationLegend(ThemeData theme) {
     return Padding(
