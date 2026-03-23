@@ -15,8 +15,7 @@ class PerformanceScreen extends StatefulWidget {
 class _PerformanceScreenState extends State<PerformanceScreen> {
   String? _selectedPortfolioId;
   Map<String, dynamic>? _selectedPortfolioData;
-  String _selectedTimeframe = '1y';
-
+  
   // Benchmark state
   String _selectedBenchmark = 'SPY';
   final List<String> _benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM'];
@@ -34,11 +33,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _riskMetrics;
   bool _isSimulating = false;
 
-  // --- API KALD TIL BACKEND (Backtest) ---
+  // --- API KALD TIL BACKEND (Backtest - Out of Sample) ---
   Future<void> _fetchBacktestData() async {
     if (_selectedPortfolioData == null) return;
 
     setState(() => _isLoading = true);
+
+    // 1. Definer vores Out-of-Sample Test periode.
+    // Træningen stoppede ved 'train_end_date', så testen starter der og går frem til i dag.
+    final String testStartDate = _selectedPortfolioData!['train_end_date'];
+    final DateTime today = DateTime.now();
+    final String testEndDate = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
     final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
 
@@ -49,7 +54,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         body: jsonEncode({
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
-          "timeframe": _selectedTimeframe.toLowerCase(),
+          "test_start_date": testStartDate, 
+          "test_end_date": testEndDate,     
           "benchmark": _selectedBenchmark,
         }),
       );
@@ -83,6 +89,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
     setState(() => _isSimulating = true);
 
+    // Simulationen bruger al tilgængelig historik (Både train og test perioden)
+    // for at have det bedst mulige grundlag at bygge spåkuglen på.
+    final String histStartDate = _selectedPortfolioData!['train_start_date'];
+    final DateTime today = DateTime.now();
+    final String histEndDate = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
     final url = Uri.parse('https://efficientfrontier.onrender.com/simulate');
 
     try {
@@ -92,8 +104,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         body: jsonEncode({
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
-          "timeframe": "5y", // Basis for bootstrapping
-          "days_to_sim": 252, // 1 års fremskrivning
+          "hist_start_date": histStartDate, 
+          "hist_end_date": histEndDate,     
+          "days_to_sim": 252, // 1 års fremskrivning i spåkuglen
           "simulations": 1000,
         }),
       );
@@ -138,7 +151,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           title: const Text("Performance"),
           bottom: const TabBar(
             tabs: [
-              Tab(text: "Historisk (Backtest)", icon: Icon(Icons.history)),
+              Tab(text: "Out-of-Sample Test", icon: Icon(Icons.history)),
               Tab(text: "Fremtid (Prognose)", icon: Icon(Icons.auto_graph)),
             ],
           ),
@@ -149,7 +162,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // --- GLOBAL KONTROL (Gælder begge faner) ---
+                    // --- GLOBAL KONTROL ---
                     StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('users')
@@ -171,9 +184,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           value: _selectedPortfolioId,
                           items: docs.map((doc) {
                             final data = doc.data() as Map<String, dynamic>;
+                            // Vi tilføjer datoen i titlen, så brugeren kan se, hvornår den blev trænet til
                             return DropdownMenuItem(
                               value: doc.id,
-                              child: Text("${data['type']} (${data['tickers'].length} aktier)", style: const TextStyle(fontSize: 13)),
+                              child: Text("${data['type']} (${data['tickers'].length} aktier) - Trænet til: ${data['train_end_date'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
                             );
                           }).toList(),
                           onChanged: (id) {
@@ -181,7 +195,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                               _selectedPortfolioId = id;
                               _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
                             });
-                            // Hent begge datasæt, når en portefølje vælges
                             _fetchBacktestData();
                             _fetchSimulationData();
                           },
@@ -191,62 +204,33 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
                     const SizedBox(height: 24),
 
-                    // --- TAB BAR VIEW: HER SKIFTER VI MELLEM DE TO GRAFER ---
+                    // --- TAB BAR VIEW ---
                     Expanded(
                       child: TabBarView(
-                        physics: const NeverScrollableScrollPhysics(), // Undgå swipe for at sikre chart pan virker
+                        physics: const NeverScrollableScrollPhysics(),
                         children: [
                           
                           // ==========================================
-                          // TAB 1: BACKTEST
+                          // TAB 1: BACKTEST (Out-of-Sample)
                           // ==========================================
                           Column(
                             children: [
                               const SizedBox(height: 16),
-                              // Lokale kontroller KUN for backtest
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Benchmark',
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      ),
-                                      value: _selectedBenchmark,
-                                      items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          setState(() => _selectedBenchmark = val);
-                                          _fetchBacktestData(); 
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Tidshorisont',
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      ),
-                                      value: _selectedTimeframe,
-                                      items: ['1mo', '6mo', 'ytd', '1y', '5y', 'max'].map((time) {
-                                        return DropdownMenuItem(
-                                          value: time,
-                                          child: Text(time.toUpperCase()),
-                                        );
-                                      }).toList(),
-                                      onChanged: (val) {
-                                        if (val != null && val != _selectedTimeframe) {
-                                          setState(() => _selectedTimeframe = val);
-                                          _fetchBacktestData();
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ],
+                              // Vi har fjernet Timeframe, da det nu dikteres af test-perioden
+                              DropdownButtonFormField<String>(
+                                decoration: const InputDecoration(
+                                  labelText: 'Benchmark',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                value: _selectedBenchmark,
+                                items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => _selectedBenchmark = val);
+                                    _fetchBacktestData(); 
+                                  }
+                                },
                               ),
                               const SizedBox(height: 16),
                               
@@ -257,7 +241,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                 child: _isLoading
                                     ? const Center(child: CircularProgressIndicator())
                                     : _portfolioSpots.isEmpty
-                                        ? const Center(child: Text("Vælg en portefølje for at se backtest"))
+                                        ? const Center(child: Text("Vælg en portefølje for at køre out-of-sample test"))
                                         : LineChart(_buildChartData(theme)),
                               ),
                               if (_portfolioSpots.isNotEmpty) _buildLegend(theme),
@@ -269,7 +253,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           // ==========================================
                           Column(
                             children: [
-                              // Ingen benchmark eller timeframe her! Kun ren simulation.
                               if (_riskMetrics != null && !_isSimulating) _buildRiskMetricsBar(theme),
                               const SizedBox(height: 24),
                               
@@ -415,7 +398,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  // Hjælpefunktion for at skabe lag i simuleringen (Fan chart)
   LineChartBarData _simLayer({required List<FlSpot> spots, required Color color, double width = 0, bool fill = true, List<FlSpot>? belowSpots}) {
     return LineChartBarData(
       spots: spots,
@@ -426,8 +408,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       belowBarData: BarAreaData(
         show: fill,
         color: color,
-        // Hvis vi har defined en bund (belowSpots), cuttes farven dér. 
-        // Ellers går den ned til X-aksen. (Dette bruges for at undgå at alt bare er massivt blåt)
       ),
     );
   }
@@ -436,41 +416,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return LineChart(
       LineChartData(
         lineBarsData: [
-          // 1. Det inderste, mest sandsynlige bånd (Mørkest gennemsigtighed)
-          // Her tegner vi stregen for P75 og lader farven falde ned
-          _simLayer(
-            spots: _simulationPaths['p75']!, 
-            color: theme.colorScheme.primary.withOpacity(0.25)
-          ),
-          
-          // 2. Vi tegner P25, men farven er hvid/baggrund, for at "klippe" hul i P75's farvelægning under P25
-          // (Et lille fl_chart trick for at lave bånd mellem to linjer)
-          _simLayer(
-            spots: _simulationPaths['p25']!, 
-            color: Theme.of(context).scaffoldBackgroundColor, // Gør at P75 farven forsvinder herunder
-            fill: true
-          ),
-
-          // 3. Det brede, usikre bånd (Lysest gennemsigtighed)
-          _simLayer(
-            spots: _simulationPaths['p95']!, 
-            color: theme.colorScheme.primary.withOpacity(0.1)
-          ),
-
-          // 4. Klip hul i det brede bånd under P5
-          _simLayer(
-            spots: _simulationPaths['p5']!, 
-            color: Theme.of(context).scaffoldBackgroundColor,
-            fill: true
-          ),
-
-          // 5. Medianen tegnes som en massiv streg oven på det hele
-          _simLayer(
-            spots: _simulationPaths['median']!, 
-            color: theme.colorScheme.primary, 
-            width: 3, 
-            fill: false
-          ),
+          _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
+          _simLayer(spots: _simulationPaths['p25']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
+          _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
+          _simLayer(spots: _simulationPaths['p5']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
+          _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
         ],
         gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
         titlesData: FlTitlesData(
@@ -480,7 +430,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10)))),
         ),
         borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
-        lineTouchData: const LineTouchData(enabled: false), // Tooltips er svære på 5 linjer
+        lineTouchData: const LineTouchData(enabled: false), 
       ),
     );
   }
@@ -501,9 +451,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  // ==========================================
-  // FÆLLES HJÆLPER
-  // ==========================================
   Widget _legendCircle(Color color, String label) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),

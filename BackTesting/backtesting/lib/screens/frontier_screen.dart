@@ -69,8 +69,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
       showSimulation = true;
     });
 
-    // Calculate dates based on timeframe
-    final endDate = DateTime.now();
+    // --- NY DATO LOGIK (Træning vs Test Split) ---
+    final today = DateTime.now();
+    
+    // Vi tvinger TRÆNINGEN til at slutte for præcis 1 år siden. 
+    // Derved gemmer vi det seneste år til vores out-of-sample backtest!
+    final endDate = DateTime(today.year - 1, today.month, today.day); 
+    
     DateTime startDate;
     switch (_selectedTimeframe) {
       case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
@@ -82,7 +87,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
     final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
     final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
-
     final tickerString = selectedTickers.join(',');
     // UPDATED URL with new parameters
     final url = Uri.parse(
@@ -180,19 +184,24 @@ class _FrontierScreenState extends State<FrontierScreen> {
           .doc(user.uid)
           .collection('saved_portfolios');
 
-      // --- NYT: Vi genberegner datoerne, så vi kan gemme dem i databasen ---
-      final endDate = DateTime.now();
-      DateTime startDate;
-      switch (_selectedTimeframe) {
-        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-        case '5 år':
-        default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
-      }
-      final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
-      final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
-      // ------------------------------------------------------------------------
+      // --- NY DATO LOGIK (Træning vs Test Split) ---
+    final today = DateTime.now();
+    
+    // Vi tvinger TRÆNINGEN til at slutte for præcis 1 år siden. 
+    // Derved gemmer vi det seneste år til vores out-of-sample backtest!
+    final endDate = DateTime(today.year - 2, today.month, today.day); 
+    
+    DateTime startDate;
+    switch (_selectedTimeframe) {
+      case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+      case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+      case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+      case '5 år':
+      default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
+    }
+
+    final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
+    final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
 
       // 1. Max Sharpe Entry
       batch.set(userPortfoliosRef.doc(), {
