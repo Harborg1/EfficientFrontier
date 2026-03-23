@@ -163,6 +163,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   // --- FIRESTORE PERSISTENCE ---
+  // --- FIRESTORE PERSISTENCE ---
   Future<void> saveBothPortfolios() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -179,12 +180,28 @@ class _FrontierScreenState extends State<FrontierScreen> {
           .doc(user.uid)
           .collection('saved_portfolios');
 
+      // --- NYT: Vi genberegner datoerne, så vi kan gemme dem i databasen ---
+      final endDate = DateTime.now();
+      DateTime startDate;
+      switch (_selectedTimeframe) {
+        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+        case '5 år':
+        default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
+      }
+      final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
+      final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
+      // ------------------------------------------------------------------------
+
       // 1. Max Sharpe Entry
       batch.set(userPortfoliosRef.doc(), {
         'type': 'Max Sharpe',
         'tickers': List.from(selectedTickers),
         'return': maxSharpe!['y'],
         'weights': maxSharpe!['weights'],
+        'train_start_date': startStr, // GEM TRÆNINGSSTART
+        'train_end_date': endStr,     // GEM TRÆNINGSSLUT
         'timestamp': FieldValue.serverTimestamp(),
       });
 
@@ -194,13 +211,15 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'tickers': List.from(selectedTickers),
         'return': minVol!['y'],
         'weights': minVol!['weights'],
+        'train_start_date': startStr, // GEM TRÆNINGSSTART
+        'train_end_date': endStr,     // GEM TRÆNINGSSLUT
         'timestamp': FieldValue.serverTimestamp(),
       });
 
       try {
         await batch.commit();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Begger porteføljer er gemt i Firestore!")),
+          const SnackBar(content: Text("Begge porteføljer er gemt i Firestore!")),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
