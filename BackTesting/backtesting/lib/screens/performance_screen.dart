@@ -17,6 +17,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _selectedPortfolioData;
   
   // Benchmark state
+  String _selectedTimeframe = 'max';
   String _selectedBenchmark = 'SPY';
   final List<String> _benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM'];
 
@@ -33,16 +34,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Map<String, dynamic>? _riskMetrics;
   bool _isSimulating = false;
 
+  String _currentVisibleStartDate = "";
+
   
   String _formatDateLabel(double value, String? startStr) {
   if (startStr == null) return "";
   try {
     DateTime startDate = DateTime.parse(startStr);
-    // Vi antager at hver 'x' er en kalenderdag (forenkling)
-    // For mere præcision med handelsdage kræves dato-liste fra backend
-    DateTime date = startDate.add(Duration(days: value.toInt()));
+    // Vi ganger med 1.442 for at konvertere handelsdage til kalenderdage
+    int daysToAdd = (value * 1.442).toInt(); 
+    DateTime date = startDate.add(Duration(days: daysToAdd));
     
-    // Manuel formatering (eller brug 'intl' pakken hvis du har den)
     List<String> months = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
     return "${months[date.month - 1]} ${date.year.toString().substring(2)}";
   } catch (e) {
@@ -51,55 +53,76 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 }
 
   // --- API KALD TIL BACKEND (Backtest - Out of Sample) ---
-  Future<void> _fetchBacktestData() async {
-    if (_selectedPortfolioData == null) return;
+ // 3. Den rettede API-funktion
+Future<void> _fetchBacktestData() async {
+  if (_selectedPortfolioData == null) return;
 
-    setState(() => _isLoading = true);
+  setState(() {
+    _isLoading = true;
+    _portfolioSpots = []; // Ryd data så grafen ikke viser gamle datoer mens den loader
+  });
 
-    // 1. Definer vores Out-of-Sample Test periode.
-    // Træningen stoppede ved 'train_end_date', så testen starter der og går frem til i dag.
-    final String testStartDate = _selectedPortfolioData!['train_end_date'];
-    final DateTime today = DateTime.now();
-    final String testEndDate = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+  // --- NY DATO-LOGIK: Vi regner baglæns fra i dag ---
+  final DateTime today = DateTime.now();
+  final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
+  
+  DateTime startDateObj;
 
-    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "tickers": _selectedPortfolioData!['tickers'],
-          "weights": _selectedPortfolioData!['weights'],
-          "test_start_date": testStartDate, 
-          "test_end_date": testEndDate,     
-          "benchmark": _selectedBenchmark,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        setState(() {
-          _portfolioSpots = (data['portfolio'] as List)
-              .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
-              .toList();
-
-          _benchmarkSpots = (data['benchmark'] as List)
-              .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
-              .toList();
-
-          _portfolioStats = data['portfolio_stats'];
-          _benchmarkStats = data['benchmark_stats'];
-        });
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching backtest: $e")));
-    } finally {
-      setState(() => _isLoading = false);
-    }
+  switch (_selectedTimeframe) {
+    case '1mo': startDateObj = today.subtract(const Duration(days: 30)); break;
+    case '6mo': startDateObj = today.subtract(const Duration(days: 182)); break;
+    case '1y':  startDateObj = today.subtract(const Duration(days: 365)); break;
+    case 'max':
+    default:    startDateObj = trainEndDate; break;
   }
 
+  // SIKKERHED: Vi må aldrig gå længere tilbage end der hvor træningen sluttede (Out-of-sample)
+  if (startDateObj.isBefore(trainEndDate)) {
+    startDateObj = trainEndDate;
+  }
+
+  final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
+  final String finalEndStr = today.toIso8601String().substring(0, 10);
+
+  // VIGTIGT: Gem den faktiske startdato for denne visning til brug i tidsaksen
+  setState(() {
+    _currentVisibleStartDate = finalStartStr;
+  });
+
+  final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
+
+  try {
+    final response = await http.post(
+      url,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "tickers": _selectedPortfolioData!['tickers'],
+        "weights": _selectedPortfolioData!['weights'],
+        "test_start_date": finalStartStr, 
+        "test_end_date": finalEndStr,     
+        "benchmark": _selectedBenchmark,
+      }),
+    ).timeout(const Duration(seconds: 90));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      setState(() {
+        _portfolioSpots = (data['portfolio'] as List)
+            .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
+            .toList();
+        _benchmarkSpots = (data['benchmark'] as List)
+            .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
+            .toList();
+        _portfolioStats = data['portfolio_stats'];
+        _benchmarkStats = data['benchmark_stats'];
+      });
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+  } finally {
+    setState(() => _isLoading = false);
+  }
+}
   // --- API KALD TIL BACKEND (Simulation) ---
   Future<void> _fetchSimulationData() async {
     if (_selectedPortfolioData == null) return;
@@ -126,7 +149,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           "days_to_sim": 252, // 1 års fremskrivning i spåkuglen
           "simulations": 1000,
         }),
-      );
+      ).timeout(const Duration(seconds:90));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -179,7 +202,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // --- GLOBAL KONTROL ---
+                    // --- GLOBAL KONTROL: Valg af portefølje ---
                     StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('users')
@@ -201,10 +224,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           value: _selectedPortfolioId,
                           items: docs.map((doc) {
                             final data = doc.data() as Map<String, dynamic>;
-                            // Vi tilføjer datoen i titlen, så brugeren kan se, hvornår den blev trænet til
                             return DropdownMenuItem(
                               value: doc.id,
-                              child: Text("${data['type']} (${data['tickers'].length} aktier) - Trænet i perioden: ${data['train_start_date'] ?? 'N/A'} - ${data['train_end_date'] ?? 'N/A'}", style: const TextStyle(fontSize: 12)),
+                              child: Text(
+                                "${data['type']} (${data['tickers'].length} aktier) - Trænet: ${data['train_start_date'] ?? 'N/A'}-${data['train_end_date'] ?? 'N/A'}",
+                                style: const TextStyle(fontSize: 12),
+                              ),
                             );
                           }).toList(),
                           onChanged: (id) {
@@ -226,53 +251,87 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                       child: TabBarView(
                         physics: const NeverScrollableScrollPhysics(),
                         children: [
-                          
                           // ==========================================
                           // TAB 1: BACKTEST (Out-of-Sample)
                           // ==========================================
                           Column(
                             children: [
                               const SizedBox(height: 16),
-                              // Vi har fjernet Timeframe, da det nu dikteres af test-perioden
-                              DropdownButtonFormField<String>(
-                                decoration: const InputDecoration(
-                                  labelText: 'Benchmark',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                value: _selectedBenchmark,
-                                items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() => _selectedBenchmark = val);
-                                    _fetchBacktestData(); 
-                                  }
-                                },
+                              
+                              // HER ER DE TO DROPDOWNS SIDE OM SIDE
+                              Row(
+                                children: [
+                                  // Benchmark valg
+                                  Expanded(
+                                    child: DropdownButtonFormField<String>(
+                                      decoration: const InputDecoration(
+                                        labelText: 'Benchmark',
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                      value: _selectedBenchmark,
+                                      items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
+                                      onChanged: (val) {
+                                        if (val != null) {
+                                          setState(() => _selectedBenchmark = val);
+                                          _fetchBacktestData();
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  // Test-længde valg
+                                  Expanded(
+                                    child: DropdownButtonFormField<String>(
+                                      decoration: const InputDecoration(
+                                        labelText: 'Test-længde',
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                      value: _selectedTimeframe,
+                                      items: const [
+                                        DropdownMenuItem(value: '1mo', child: Text('1 MD')),
+                                        DropdownMenuItem(value: '6mo', child: Text('6 MDR')),
+                                        DropdownMenuItem(value: '1y', child: Text('1 ÅR')),
+                                        DropdownMenuItem(value: 'max', child: Text('ALT')),
+                                      ],
+                                      onChanged: (val) {
+                                        if (val != null) {
+                                          setState(() => _selectedTimeframe = val);
+                                          _fetchBacktestData();
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
                               ),
+                              
                               const SizedBox(height: 16),
                               
                               if (_portfolioStats != null && !_isLoading) _buildStatsTable(theme),
+                              
                               const SizedBox(height: 16),
                               
                               Expanded(
                                 child: _isLoading
                                     ? const Center(child: CircularProgressIndicator())
                                     : _portfolioSpots.isEmpty
-                                        ? const Center(child: Text("Vælg en portefølje for at køre out-of-sample test"))
+                                        ? const Center(child: Text("Vælg en portefølje for at se backtest"))
                                         : LineChart(_buildChartData(theme)),
                               ),
-                              if (_portfolioSpots.isNotEmpty) _buildLegend(theme),
                             ],
                           ),
 
                           // ==========================================
                           // TAB 2: SIMULATION (Fremtid)
                           // ==========================================
+
+
+                          
                           Column(
                             children: [
                               if (_riskMetrics != null && !_isSimulating) _buildRiskMetricsBar(theme),
                               const SizedBox(height: 24),
-                              
                               Expanded(
                                 child: _isSimulating
                                     ? const Center(child: CircularProgressIndicator())
@@ -324,85 +383,228 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       ],
     );
   }
+LineChartData _buildChartData(ThemeData theme) {
+  // Find det sidste punkt på x-aksen for at kunne give grafen lidt luft til højre
+  double maxXValue = _portfolioSpots.isNotEmpty ? _portfolioSpots.last.x : 0;
 
-  LineChartData _buildChartData(ThemeData theme) {
-    return LineChartData(
-      lineTouchData: LineTouchData(
-        touchTooltipData: LineTouchTooltipData(
-          getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
-          tooltipRoundedRadius: 8,
-          getTooltipItems: (List<LineBarSpot> touchedSpots) {
-            return touchedSpots.map((LineBarSpot touchedSpot) {
-              return LineTooltipItem(
-                touchedSpot.y.toStringAsFixed(2),
-                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              );
-            }).toList();
-          },
+  return LineChartData(
+    // 1. BUFFER: Vi giver grafen 5% ekstra plads til højre, så den ikke rammer kanten
+    maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
+    
+    // CLIP DATA: Sørger for at linjerne bliver inde i rammen
+    clipData: const FlClipData.all(),
+    
+    lineTouchData: LineTouchData(
+      touchTooltipData: LineTouchTooltipData(
+        getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
+        tooltipRoundedRadius: 8,
+        
+        // --- HER ER FIXET TIL DRAG/TOOLTIP ---
+        fitInsideHorizontally: true, // Spejlvender boksen hvis den rammer højre kant
+        fitInsideVertically: true,   // Holder boksen indenfor top/bund
+        // -------------------------------------
+
+        getTooltipItems: (List<LineBarSpot> touchedSpots) {
+          return touchedSpots.map((LineBarSpot touchedSpot) {
+            return LineTooltipItem(
+              touchedSpot.y.toStringAsFixed(2),
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            );
+          }).toList();
+        },
+      ),
+    ),
+    
+    // ... resten af dine gridData, titlesData, borderData og lineBarsData herunder
+
+    // 2. GRID: Vi tilføjer meget svage vertikale linjer for at hjælpe øjet
+    gridData: FlGridData(
+      show: true, 
+      drawVerticalLine: true, // Nu med vertikale linjer
+      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+    ),
+
+    titlesData: FlTitlesData(
+      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      
+      // 3. VENSTRE AKSE: Mere moderne look
+      leftTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true, 
+          reservedSize: 42, 
+          getTitlesWidget: (v, m) => SideTitleWidget(
+            meta:m,
+            space:8,
+            child: Text(v.toInt().toString(), style: TextStyle(fontSize: 10, color: Colors.blueGrey.shade300)),
+          ),
         ),
       ),
-      gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
-      
-      titlesData: FlTitlesData(
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10)))),
+
+      // 4. BUND AKSE DATOER
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            reservedSize: 30,
-            interval: 60, // Vis dato ca. hver 2. måned
+            reservedSize: 32,
+            interval: 64, // Viser en label ca. hver 3. måned
             getTitlesWidget: (value, meta) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 8.0),
+              // Skjul labels i kanten for at undgå at de bliver mast
+              if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+              
+              return SideTitleWidget(
+                meta: meta,
+                space: 8,
                 child: Text(
-                  _formatDateLabel(value, _selectedPortfolioData?['train_end_date']),
-                  style: const TextStyle(fontSize: 9, color: Colors.grey),
+                  // Her bruger vi din nye dynamiske startdato!
+                  _formatDateLabel(value, _currentVisibleStartDate), 
+                  style: TextStyle(
+                    fontSize: 10, 
+                    fontWeight: FontWeight.w500, 
+                    color: Colors.blueGrey.shade600
+                  ),
                 ),
               );
             },
           ),
         ),
       ),
-      borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.withOpacity(0.2))),
-      lineBarsData: [
-        LineChartBarData(
-          spots: _portfolioSpots,
-          isCurved: true,
-          color: theme.colorScheme.primary,
-          barWidth: 3,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.1)),
-        ),
-        LineChartBarData(
-          spots: _benchmarkSpots,
-          isCurved: true,
-          color: Colors.orange,
-          barWidth: 2,
-          dashArray: [5, 5],
-          dotData: const FlDotData(show: false),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildLegend(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _legendCircle(theme.colorScheme.primary, "Din portefølje"),
-          const SizedBox(width: 20),
-          _legendCircle(Colors.orange, _selectedBenchmark),
-        ],
+    borderData: FlBorderData(
+      show: true, 
+      border: Border(
+        bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
+        left: BorderSide(color: Colors.grey.withOpacity(0.2)),
       ),
-    );
-  }
+    ),
 
+    lineBarsData: [
+      LineChartBarData(
+        spots: _portfolioSpots,
+        isCurved: true,
+        color: theme.colorScheme.primary,
+        barWidth: 3,
+        dotData: const FlDotData(show: false),
+        belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.05)),
+      ),
+      LineChartBarData(
+        spots: _benchmarkSpots,
+        isCurved: true,
+        color: Colors.orange.withOpacity(0.7), // Gør benchmark lidt mere diskret
+        barWidth: 2,
+        dashArray: [5, 5],
+        dotData: const FlDotData(show: false),
+      ),
+    ],
+  );
+}
   // ==========================================
   // WIDGETS TIL SIMULATION (TAB 2)
   // ==========================================
+
+  LineChartData _buildSimulationChartData(ThemeData theme) {
+  // Find det sidste punkt for at give grafen luft til højre (buffer)
+  double maxXValue = 0;
+  if (_simulationPaths.containsKey('median') && _simulationPaths['median']!.isNotEmpty) {
+    maxXValue = _simulationPaths['median']!.last.x;
+  }
+
+  // Vi definerer dags dato som startpunkt for tidsaksen i prognosen
+  final String todayStr = DateTime.now().toIso8601String().substring(0, 10);
+
+  return LineChartData(
+    // 1. BUFFER & CLIP: Giver 10% luft til højre og holder data indenfor rammen
+    maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
+    clipData: const FlClipData.all(),
+
+    // 2. TOOLTIP FIX: Sørger for at boksene ikke forsvinder ved kanterne
+    lineTouchData: LineTouchData(
+      touchTooltipData: LineTouchTooltipData(
+        getTooltipColor: (spot) => Colors.blueGrey.withOpacity(0.8),
+        fitInsideHorizontally: true,
+        fitInsideVertically: true,
+        getTooltipItems: (List<LineBarSpot> touchedSpots) {
+          return touchedSpots.map((LineBarSpot touchedSpot) {
+            return LineTooltipItem(
+              touchedSpot.y.toStringAsFixed(2),
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            );
+          }).toList();
+        },
+      ),
+    ),
+
+    // 3. GRID: Svage linjer der matcher backtesten
+    gridData: FlGridData(
+      show: true,
+      drawVerticalLine: true,
+      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+    ),
+
+    // 4. TITLES: SideTitleWidget for et skarpt look
+    titlesData: FlTitlesData(
+      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      
+      leftTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 42,
+          getTitlesWidget: (value, meta) => SideTitleWidget(
+            meta: meta,
+            space: 8,
+            child: Text(
+              value.toInt().toString(),
+              style: TextStyle(fontSize: 10, color: Colors.blueGrey.shade300),
+            ),
+          ),
+        ),
+      ),
+
+      bottomTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 32,
+          interval: 64, // Viser dato ca. hver 3. måned
+          getTitlesWidget: (value, meta) {
+            if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+
+            return SideTitleWidget(
+              meta: meta,
+              space: 8,
+              child: Text(
+                _formatDateLabel(value, todayStr),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.blueGrey.shade600,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ),
+
+    borderData: FlBorderData(
+      show: true,
+      border: Border(
+        bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
+        left: BorderSide(color: Colors.grey.withOpacity(0.2)),
+      ),
+    ),
+
+    // 5. DATA LAG (Viften)
+    lineBarsData: [
+      _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
+      _simLayer(spots: _simulationPaths['p25']!, color: theme.scaffoldBackgroundColor, fill: true),
+      _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
+      _simLayer(spots: _simulationPaths['p5']!, color: theme.scaffoldBackgroundColor, fill: true),
+      _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
+    ],
+  );
+}
   Widget _buildRiskMetricsBar(ThemeData theme) {
     return Card(
       elevation: 0,
@@ -445,56 +647,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _buildSimulationChart(ThemeData theme) {
-  // Vi definerer dags dato som startpunkt for tidsaksen i prognosen
-  final String todayStr = DateTime.now().toIso8601String().substring(0, 10);
+ Widget _buildSimulationChart(ThemeData theme) {
+  if (_simulationPaths.isEmpty) return const Center(child: Text("Ingen simuleringsdata"));
+
   return LineChart(
-    LineChartData(
-      lineBarsData: [
-        _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
-        _simLayer(spots: _simulationPaths['p25']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
-        _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
-        _simLayer(spots: _simulationPaths['p5']!, color: Theme.of(context).scaffoldBackgroundColor, fill: true),
-        _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
-      ],
-      titlesData: FlTitlesData(
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true, 
-            reservedSize: 40, 
-            getTitlesWidget: (v, m) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 10))
-          )
-        ),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 30,
-            interval: 60, // Samme interval som i backtest (ca. hver 2. måned)
-            getTitlesWidget: (value, meta) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(
-                  _formatDateLabel(value, todayStr), // Bruger den fælles formaterings-funktion
-                  style: const TextStyle(fontSize: 9, color: Colors.grey),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-      gridData: FlGridData(
-        show: true, 
-        drawVerticalLine: false, 
-        getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)
-      ),
-      borderData: FlBorderData(
-        show: true, 
-        border: Border.all(color: Colors.grey.withOpacity(0.2))
-      ),
-      lineTouchData: const LineTouchData(enabled: false), 
-    ),
+    _buildSimulationChartData(theme),
   );
 }
 
@@ -506,7 +663,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           _legendCircle(theme.colorScheme.primary, "Median"),
           const SizedBox(width: 15),
-          _legendCircle(theme.colorScheme.primary.withOpacity(0.3), "Sandsynlig (50%)"),
+          _legendCircle(theme.colorScheme.primary.withOpacity(0.6), "Sandsynlig (50%)"),
           const SizedBox(width: 15),
           _legendCircle(theme.colorScheme.primary.withOpacity(0.1), "Ekstrem (90%)"),
         ],
