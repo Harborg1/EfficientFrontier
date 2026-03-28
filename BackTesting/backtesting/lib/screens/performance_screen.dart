@@ -199,31 +199,8 @@ Future<void> _fetchBacktestData() async {
 
     setState(() => _isSimulating = true);
 
+    final String histStartDate = _selectedPortfolioData!['train_start_date'];
     final DateTime today = DateTime.now();
-    final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
-    DateTime startDateObj;
-
-    switch (_selectedTimeframe) {
-      case '1mo':
-        startDateObj = today.subtract(const Duration(days: 30));
-        break;
-      case '6mo':
-        startDateObj = today.subtract(const Duration(days: 182));
-        break;
-      case '1y':
-        startDateObj = today.subtract(const Duration(days: 365));
-        break;
-      case 'max':
-      default:
-        startDateObj = trainEndDate;
-        break;
-    }
-
-    if (startDateObj.isBefore(trainEndDate)) {
-      startDateObj = trainEndDate;
-    }
-
-    final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
     final String finalEndStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
     final url = Uri.parse('https://efficientfrontier.onrender.com/simulate');
@@ -235,8 +212,8 @@ Future<void> _fetchBacktestData() async {
         body: jsonEncode({
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
-          "test_start_date": finalStartStr, 
-          "test_end_date": finalEndStr,     
+          "hist_start_date": histStartDate, 
+          "hist_end_date": finalEndStr,     
           "days_to_sim": 252, // 1 års fremskrivning i spåkuglen
           "simulations": 1000,
         }),

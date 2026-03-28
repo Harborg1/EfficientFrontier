@@ -34,8 +34,8 @@ class BacktestRequest(BaseModel):
 class SimulationRequest(BaseModel):
     tickers: List[str]
     weights: Dict[str, float]
-    test_start_date: str = "2019-01-01"
-    test_end_date: str = "2025-12-31"
+    hist_start_date: str = "2019-01-01"
+    hist_end_date: str = "2025-12-31"
     days_to_sim: int = 252 
     simulations: int = 1000
 
@@ -198,11 +198,11 @@ async def backtest(data: BacktestRequest):
 @app.post("/simulate")
 async def simulate_portfolio(data: SimulationRequest):
     try:
-        # Henter historik for den valgte testperiode
+        # Henter historik for hele det valgte historiske vindue
         df = yf.download(
             data.tickers, 
-            start=data.test_start_date, 
-            end=data.test_end_date, 
+            start=data.hist_start_date, 
+            end=data.hist_end_date, 
             auto_adjust=False
         )['Adj Close']
         
