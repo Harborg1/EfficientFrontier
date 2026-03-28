@@ -34,10 +34,16 @@ class BacktestRequest(BaseModel):
 class SimulationRequest(BaseModel):
     tickers: List[str]
     weights: Dict[str, float]
-    hist_start_date: str = "2019-01-01" # Start på den data vi vil bygge "puljen" af
-    hist_end_date: str = "2025-12-31"   # Slut på "puljen"
+    test_start_date: str = "2019-01-01"
+    test_end_date: str = "2025-12-31"
     days_to_sim: int = 252 
     simulations: int = 1000
+
+class CorrelationRequest(BaseModel):
+    tickers: List[str]
+    weights: Dict[str, float]
+    test_start_date: str 
+    test_end_date: str
 
 # --- ENDPOINT 1: OPTIMIZE (Træning) ---
 @app.get("/optimize")
@@ -192,11 +198,11 @@ async def backtest(data: BacktestRequest):
 @app.post("/simulate")
 async def simulate_portfolio(data: SimulationRequest):
     try:
-        # Henter historik for det angivne "hukommelses"-vindue
+        # Henter historik for den valgte testperiode
         df = yf.download(
             data.tickers, 
-            start=data.hist_start_date, 
-            end=data.hist_end_date, 
+            start=data.test_start_date, 
+            end=data.test_end_date, 
             auto_adjust=False
         )['Adj Close']
         
@@ -256,6 +262,55 @@ async def simulate_portfolio(data: SimulationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.post("/correlation")
+async def portfolio_correlation(data: CorrelationRequest):
+    try:
+        df = yf.download(
+            data.tickers,
+            start=data.test_start_date,
+            end=data.test_end_date,
+            auto_adjust=False
+        )['Adj Close']
+
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Kunne ikke hente historik til korrelation")
+
+        returns = df.pct_change().dropna()
+        valid_tickers = [t for t in data.tickers if t in returns.columns]
+
+        if len(valid_tickers) < 2:
+            return {
+                "portfolio_correlation": None,
+                "valid_tickers": valid_tickers,
+                "period_start": data.test_start_date,
+                "period_end": data.test_end_date,
+            }
+
+        corr_matrix = returns[valid_tickers].corr().fillna(0.0)
+        w_array = np.array([data.weights[t] for t in valid_tickers], dtype=float)
+        w_array /= w_array.sum()
+
+        weighted_corr_sum = 0.0
+        pair_weight_sum = 0.0
+
+        for i in range(len(valid_tickers)):
+            for j in range(i + 1, len(valid_tickers)):
+                pair_weight = float(w_array[i] * w_array[j])
+                weighted_corr_sum += pair_weight * float(corr_matrix.iloc[i, j])
+                pair_weight_sum += pair_weight
+
+        portfolio_corr = weighted_corr_sum / pair_weight_sum if pair_weight_sum > 0 else None
+
+        return {
+            "portfolio_correlation": round(float(portfolio_corr), 3) if portfolio_corr is not None else None,
+            "valid_tickers": valid_tickers,
+            "period_start": data.test_start_date,
+            "period_end": data.test_end_date,
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/tickers")
 def get_available_tickers():
     return {"tickers": TICKER_UNIVERSE}

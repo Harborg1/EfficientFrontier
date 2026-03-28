@@ -24,10 +24,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   // Statistikker fra backend (Backtest)
   Map<String, dynamic>? _portfolioStats;
   Map<String, dynamic>? _benchmarkStats;
+  double? _portfolioCorrelation;
+  String? _correlationPeriod;
 
   List<FlSpot> _portfolioSpots = [];
   List<FlSpot> _benchmarkSpots = [];
   bool _isLoading = false;
+  bool _isCorrelationLoading = false;
 
   // Simulation data
   Map<String, List<FlSpot>> _simulationPaths = {};
@@ -123,17 +126,105 @@ Future<void> _fetchBacktestData() async {
     setState(() => _isLoading = false);
   }
 }
+
+  Future<void> _fetchCorrelationData() async {
+    if (_selectedPortfolioData == null) return;
+
+    setState(() {
+      _isCorrelationLoading = true;
+      _portfolioCorrelation = null;
+      _correlationPeriod = null;
+    });
+
+    final DateTime today = DateTime.now();
+    final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
+    DateTime startDateObj;
+
+    switch (_selectedTimeframe) {
+      case '1mo':
+        startDateObj = today.subtract(const Duration(days: 30));
+        break;
+      case '6mo':
+        startDateObj = today.subtract(const Duration(days: 182));
+        break;
+      case '1y':
+        startDateObj = today.subtract(const Duration(days: 365));
+        break;
+      case 'max':
+      default:
+        startDateObj = trainEndDate;
+        break;
+    }
+
+    if (startDateObj.isBefore(trainEndDate)) {
+      startDateObj = trainEndDate;
+    }
+
+    final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
+    final String finalEndStr =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
+    final url = Uri.parse('https://efficientfrontier.onrender.com/correlation');
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "tickers": _selectedPortfolioData!['tickers'],
+          "weights": _selectedPortfolioData!['weights'],
+          "test_start_date": finalStartStr,
+          "test_end_date": finalEndStr,
+        }),
+      ).timeout(const Duration(seconds: 90));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _portfolioCorrelation = (data['portfolio_correlation'] as num?)?.toDouble();
+          _correlationPeriod = "${data['period_start']} - ${data['period_end']}";
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error fetching correlation: $e")),
+      );
+    } finally {
+      setState(() => _isCorrelationLoading = false);
+    }
+  }
   // --- API KALD TIL BACKEND (Simulation) ---
   Future<void> _fetchSimulationData() async {
     if (_selectedPortfolioData == null) return;
 
     setState(() => _isSimulating = true);
 
-    // Simulationen bruger al tilgængelig historik (Både train og test perioden)
-    // for at have det bedst mulige grundlag at bygge spåkuglen på.
-    final String histStartDate = _selectedPortfolioData!['train_start_date'];
     final DateTime today = DateTime.now();
-    final String histEndDate = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+    final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
+    DateTime startDateObj;
+
+    switch (_selectedTimeframe) {
+      case '1mo':
+        startDateObj = today.subtract(const Duration(days: 30));
+        break;
+      case '6mo':
+        startDateObj = today.subtract(const Duration(days: 182));
+        break;
+      case '1y':
+        startDateObj = today.subtract(const Duration(days: 365));
+        break;
+      case 'max':
+      default:
+        startDateObj = trainEndDate;
+        break;
+    }
+
+    if (startDateObj.isBefore(trainEndDate)) {
+      startDateObj = trainEndDate;
+    }
+
+    final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
+    final String finalEndStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
     final url = Uri.parse('https://efficientfrontier.onrender.com/simulate');
 
@@ -144,8 +235,8 @@ Future<void> _fetchBacktestData() async {
         body: jsonEncode({
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
-          "hist_start_date": histStartDate, 
-          "hist_end_date": histEndDate,     
+          "test_start_date": finalStartStr, 
+          "test_end_date": finalEndStr,     
           "days_to_sim": 252, // 1 års fremskrivning i spåkuglen
           "simulations": 1000,
         }),
@@ -238,6 +329,7 @@ Future<void> _fetchBacktestData() async {
                               _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
                             });
                             _fetchBacktestData();
+                            _fetchCorrelationData();
                             _fetchSimulationData();
                           },
                         );
@@ -245,6 +337,10 @@ Future<void> _fetchBacktestData() async {
                     ),
 
                     const SizedBox(height: 24),
+
+                    _buildCorrelationCard(theme),
+
+                    const SizedBox(height: 16),
 
                     // --- TAB BAR VIEW ---
                     Expanded(
@@ -299,6 +395,8 @@ Future<void> _fetchBacktestData() async {
                                         if (val != null) {
                                           setState(() => _selectedTimeframe = val);
                                           _fetchBacktestData();
+                                          _fetchCorrelationData();
+                                          _fetchSimulationData();
                                         }
                                       },
                                     ),
@@ -317,7 +415,9 @@ Future<void> _fetchBacktestData() async {
                                     ? const Center(child: CircularProgressIndicator())
                                     : _portfolioSpots.isEmpty
                                         ? const Center(child: Text("Vælg en portefølje for at se backtest"))
-                                        : LineChart(_buildChartData(theme)),
+                                        : _buildSlightlyWiderChart(
+                                            LineChart(_buildChartData(theme)),
+                                          ),
                               ),
                             ],
                           ),
@@ -383,6 +483,54 @@ Future<void> _fetchBacktestData() async {
       ],
     );
   }
+
+  Widget _buildCorrelationCard(ThemeData theme) {
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+      child: Padding(
+        padding: const EdgeInsets.all(14.0),
+        child: Row(
+          children: [
+            Icon(Icons.hub_outlined, color: theme.colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Porteføljekorrelation",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _isCorrelationLoading
+                        ? "Beregner korrelation..."
+                        : _portfolioCorrelation == null
+                            ? "Ingen korrelation tilgængelig"
+                            : _portfolioCorrelation!.toStringAsFixed(3),
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  if (_correlationPeriod != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _correlationPeriod!,
+                      style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 LineChartData _buildChartData(ThemeData theme) {
   // Find det sidste punkt på x-aksen for at kunne give grafen lidt luft til højre
   double maxXValue = _portfolioSpots.isNotEmpty ? _portfolioSpots.last.x : 0;
@@ -432,13 +580,8 @@ LineChartData _buildChartData(ThemeData theme) {
       // 3. VENSTRE AKSE: Mere moderne look
       leftTitles: AxisTitles(
         sideTitles: SideTitles(
-          showTitles: true, 
-          reservedSize: 42, 
-          getTitlesWidget: (v, m) => SideTitleWidget(
-            meta:m,
-            space:8,
-            child: Text(v.toInt().toString(), style: TextStyle(fontSize: 10, color: Colors.blueGrey.shade300)),
-          ),
+          showTitles: false,
+          reservedSize: 0,
         ),
       ),
 
@@ -549,16 +692,8 @@ LineChartData _buildChartData(ThemeData theme) {
       
       leftTitles: AxisTitles(
         sideTitles: SideTitles(
-          showTitles: true,
-          reservedSize: 42,
-          getTitlesWidget: (value, meta) => SideTitleWidget(
-            meta: meta,
-            space: 8,
-            child: Text(
-              value.toInt().toString(),
-              style: TextStyle(fontSize: 10, color: Colors.blueGrey.shade300),
-            ),
-          ),
+          showTitles: false,
+          reservedSize: 0,
         ),
       ),
 
@@ -650,10 +785,28 @@ LineChartData _buildChartData(ThemeData theme) {
  Widget _buildSimulationChart(ThemeData theme) {
   if (_simulationPaths.isEmpty) return const Center(child: Text("Ingen simuleringsdata"));
 
-  return LineChart(
-    _buildSimulationChartData(theme),
+  return _buildSlightlyWiderChart(
+    LineChart(
+      _buildSimulationChartData(theme),
+    ),
   );
 }
+
+  Widget _buildSlightlyWiderChart(Widget chart) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return OverflowBox(
+          minWidth: constraints.maxWidth,
+          maxWidth: constraints.maxWidth,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: chart,
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildSimulationLegend(ThemeData theme) {
     return Padding(
