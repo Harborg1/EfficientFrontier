@@ -189,7 +189,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     
     // Vi tvinger TRÆNINGEN til at slutte for præcis 1 år siden. 
     // Derved gemmer vi det seneste år til vores out-of-sample backtest!
-    final endDate = DateTime(today.year - 2, today.month, today.day); 
+    final endDate = DateTime(today.year - 1, today.month, today.day); 
     
     DateTime startDate;
     switch (_selectedTimeframe) {

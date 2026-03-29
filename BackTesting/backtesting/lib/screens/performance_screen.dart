@@ -105,7 +105,7 @@ Future<void> _fetchBacktestData() async {
         "test_end_date": finalEndStr,     
         "benchmark": _selectedBenchmark,
       }),
-    ).timeout(const Duration(seconds: 90));
+    ).timeout(const Duration(seconds: 125));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
