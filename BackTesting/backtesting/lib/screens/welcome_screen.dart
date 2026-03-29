@@ -2,6 +2,7 @@ import 'package:backtesting/screens/login_screen.dart';
 import 'package:backtesting/screens/saved_portfolios.dart';
 import 'package:flutter/material.dart';
 import 'package:backtesting/screens/frontier_screen.dart'; 
+import 'package:backtesting/screens/how_it_works_screen.dart';
 import 'package:backtesting/screens/settings_screen.dart';
 import 'package:backtesting/screens/performance_screen.dart'; // Importer din performance skærm
 import 'package:firebase_auth/firebase_auth.dart';
@@ -88,7 +89,26 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 48),
-              
+
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const HowItWorksScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.info_outline_rounded, size: 20),
+                  label: const Text(
+                    "Sådan virker appen",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+               
               // PRIMARY ACTION: GET STARTED
               SizedBox(
                 width: double.infinity,
