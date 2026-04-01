@@ -33,21 +33,21 @@ class HowItWorksScreen extends StatelessWidget {
                     icon: Icons.tune_rounded,
                     title: "1. Vælg aktier og indstillinger",
                     body:
-                        "På optimeringsskærmen vælger du tickers, maksimal vægt, tidshorisont og hvor mange porteføljer der skal simuleres.",
+                        "På optimeringsskærmen vælger du aktier ud fra deres ticker symbol, den maksimale vægt en aktie højest må have, tidshorisont og hvor mange porteføljer der skal simuleres.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.bubble_chart_rounded,
                     title: "2. Appen finder effektive porteføljer",
                     body:
-                        "Backend henter historiske kurser, beregner afkast og risiko og viser efficient frontier. Du får blandt andet en portefølje med høj Sharpe og en med lav volatilitet.",
+                        "Backend henter historiske kurser, beregner afkast og risiko og viser simuleringen som en sværm af punkter. Du får blandt andet en portefølje med høj Sharpe og en med lav volatilitet.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.history_toggle_off_rounded,
                     title: "3. Se performance og backtest",
                     body:
-                        "Når en portefølje er gemt, kan du se dens out-of-sample performance, sammenligne med benchmark, beregne korrelation og se en fremadskuende simulering.",
+                        "Når en portefølje er gemt, kan du se dens out-of-sample performance, sammenligne med benchmark (SPY,QQQ,DOW, IWM), beregne korrelation og se en fremadskuende simulering.",
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -58,7 +58,7 @@ class HowItWorksScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Tidshorisonten på frontier-skærmen bruges til træningsvinduet. Appen reserverer derefter den seneste periode til out-of-sample test, så du kan vurdere, hvordan porteføljen klarer sig efter optimeringen.",
+                    "Tidshorisonten på porteføljeoptimerings skærmen bruges som træningsvinduet for at finde de vægte der giver det bedste afkast. I "Vis performance" ses en out-of-sample test med de samme vægte, så du kan vurdere, hvordan porteføljen klarer sig efter optimeringen.
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.5,
@@ -73,8 +73,8 @@ class HowItWorksScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _BulletLine(text: "Efficient frontier med risiko og forventet afkast"),
-                  _BulletLine(text: "Max Sharpe- og Min Volatility-porteføljer"),
+                  _BulletLine(text: "Efficient frontier med årlig risiko og årlig afkast"),
+                  _BulletLine(text: "Max Sharpe ratio- og Min Volatilitet-porteføljer"),
                   _BulletLine(text: "Backtest mod benchmark"),
                   _BulletLine(text: "Korrelation for den valgte portefølje"),
                   _BulletLine(text: "Prognose/simulation for mulige fremtidige udfald"),
