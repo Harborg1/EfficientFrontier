@@ -58,7 +58,7 @@ class HowItWorksScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Tidshorisonten på porteføljeoptimerings skærmen bruges som træningsvinduet for at finde de vægte der giver det bedste afkast. I "Vis performance" ses en out-of-sample test med de samme vægte, så du kan vurdere, hvordan porteføljen klarer sig efter optimeringen.
+                    """Tidshorisonten på porteføljeoptimerings skærmen bruges som træningsvinduet for at finde de vægte der giver det bedste afkast. I "Vis performance" ses en out-of-sample test med de samme vægte, så du kan vurdere, hvordan porteføljen klarer sig efter optimeringen.""",
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.5,
@@ -73,11 +73,11 @@ class HowItWorksScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _BulletLine(text: "Efficient frontier med årlig risiko og årlig afkast"),
-                  _BulletLine(text: "Max Sharpe ratio- og Min Volatilitet-porteføljer"),
-                  _BulletLine(text: "Backtest mod benchmark"),
-                  _BulletLine(text: "Korrelation for den valgte portefølje"),
-                  _BulletLine(text: "Prognose/simulation for mulige fremtidige udfald"),
+                  const _BulletLine(text: "Efficient frontier med årlig risiko og årlig afkast"),
+                  const _BulletLine(text: "Max Sharpe ratio- og Min Volatilitet-porteføljer"),
+                  const _BulletLine(text: "Backtest mod benchmark"),
+                  const _BulletLine(text: "Korrelation for den valgte portefølje"),
+                  const _BulletLine(text: "Prognose/simulation for mulige fremtidige udfald"),
                   const SizedBox(height: 32),
                   SizedBox(
                     width: double.infinity,
