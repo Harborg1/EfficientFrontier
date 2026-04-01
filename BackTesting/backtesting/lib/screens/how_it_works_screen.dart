@@ -21,7 +21,7 @@ class HowItWorksScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "HAHAHA hjælper dig med at bygge, teste og forstå en portefølje i tre enkle trin.",
+                    "Portfolio Optimizer hjælper dig med at bygge, teste og forstå din portefølje.",
                     style: TextStyle(
                       fontSize: 18,
                       height: 1.5,
@@ -33,7 +33,7 @@ class HowItWorksScreen extends StatelessWidget {
                     icon: Icons.tune_rounded,
                     title: "1. Vælg aktier og indstillinger",
                     body:
-                        "På optimeringsskærmen vælger du aktier ud fra deres ticker symbol, den maksimale vægt en aktie højest må have, tidshorisont og hvor mange porteføljer der skal simuleres.",
+                        "I porteføjleoptimeringsvinduet vælger du aktier ud fra deres ticker symbol, den maksimale vægt en aktie højest må have, tidshorisont og hvor mange porteføljer der skal simuleres.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
