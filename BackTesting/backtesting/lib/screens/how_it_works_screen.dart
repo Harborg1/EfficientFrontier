@@ -21,7 +21,7 @@ class HowItWorksScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Portfolio Optimizer hjælper dig med at bygge, teste og forstå en portefølje i tre enkle trin.",
+                    "HAHAHA hjælper dig med at bygge, teste og forstå en portefølje i tre enkle trin.",
                     style: TextStyle(
                       fontSize: 18,
                       height: 1.5,
