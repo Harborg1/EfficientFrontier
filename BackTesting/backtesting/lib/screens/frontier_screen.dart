@@ -370,7 +370,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 foregroundColor: Colors.white,
               ),
               onPressed: isLoading ? null : calculateFrontier,
-              child: const Text("Generér Efficient Frontier", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: const Text("Start Simulering", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ),
