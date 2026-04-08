@@ -16,9 +16,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   String? _selectedPortfolioId;
   Map<String, dynamic>? _selectedPortfolioData;
   
-  // Benchmark state
+  // Benchmark / Sammenligning state
   String _selectedTimeframe = 'max';
-  String _selectedBenchmark = 'SPY';
+  // Standard værdi: vi præfikser standard benchmarks med 'bench_'
+  String _selectedComparisonId = 'bench_SPY'; 
   final List<String> _benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM'];
 
   // Statistikker fra backend (Backtest)
@@ -39,93 +40,149 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   String _currentVisibleStartDate = "";
 
-  
   String _formatDateLabel(double value, String? startStr) {
-  if (startStr == null) return "";
-  try {
-    DateTime startDate = DateTime.parse(startStr);
-    // Vi ganger med 1.442 for at konvertere handelsdage til kalenderdage
-    int daysToAdd = (value * 1.442).toInt(); 
-    DateTime date = startDate.add(Duration(days: daysToAdd));
-    
-    List<String> months = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
-    return "${months[date.month - 1]} ${date.year.toString().substring(2)}";
-  } catch (e) {
-    return "";
+    if (startStr == null || startStr.isEmpty) return "";
+    try {
+      DateTime startDate = DateTime.parse(startStr);
+      int daysToAdd = (value * 1.442).toInt(); 
+      DateTime date = startDate.add(Duration(days: daysToAdd));
+      
+      List<String> months = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
+      return "${months[date.month - 1]} ${date.year.toString().substring(2)}";
+    } catch (e) {
+      return "";
+    }
   }
-}
 
   // --- API KALD TIL BACKEND (Backtest - Out of Sample) ---
- // 3. Den rettede API-funktion
-Future<void> _fetchBacktestData() async {
-  if (_selectedPortfolioData == null) return;
+  // Vi sender 'docs' med ind, så vi kan slå den portefølje op, vi vil sammenligne med.
+  Future<void> _fetchBacktestData(List<QueryDocumentSnapshot> docs) async {
+    if (_selectedPortfolioData == null) return;
 
-  setState(() {
-    _isLoading = true;
-    _portfolioSpots = []; // Ryd data så grafen ikke viser gamle datoer mens den loader
-  });
+    setState(() {
+      _isLoading = true;
+      _portfolioSpots = [];
+      _benchmarkSpots = [];
+    });
 
-  // --- NY DATO-LOGIK: Vi regner baglæns fra i dag ---
-  final DateTime today = DateTime.now();
-  final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
-  
-  DateTime startDateObj;
+    final DateTime today = DateTime.now();
+    final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
+    DateTime startDateObj;
 
-  switch (_selectedTimeframe) {
-    case '1mo': startDateObj = today.subtract(const Duration(days: 30)); break;
-    case '6mo': startDateObj = today.subtract(const Duration(days: 182)); break;
-    case '1y':  startDateObj = today.subtract(const Duration(days: 365)); break;
-    case 'max':
-    default:    startDateObj = trainEndDate; break;
-  }
-
-  // SIKKERHED: Vi må aldrig gå længere tilbage end der hvor træningen sluttede (Out-of-sample)
-  if (startDateObj.isBefore(trainEndDate)) {
-    startDateObj = trainEndDate;
-  }
-
-  final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
-  final String finalEndStr = today.toIso8601String().substring(0, 10);
-
-  // VIGTIGT: Gem den faktiske startdato for denne visning til brug i tidsaksen
-  setState(() {
-    _currentVisibleStartDate = finalStartStr;
-  });
-
-  final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
-
-  try {
-    final response = await http.post(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({
-        "tickers": _selectedPortfolioData!['tickers'],
-        "weights": _selectedPortfolioData!['weights'],
-        "test_start_date": finalStartStr, 
-        "test_end_date": finalEndStr,     
-        "benchmark": _selectedBenchmark,
-      }),
-    ).timeout(const Duration(seconds: 125));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      setState(() {
-        _portfolioSpots = (data['portfolio'] as List)
-            .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
-            .toList();
-        _benchmarkSpots = (data['benchmark'] as List)
-            .map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble()))
-            .toList();
-        _portfolioStats = data['portfolio_stats'];
-        _benchmarkStats = data['benchmark_stats'];
-      });
+    switch (_selectedTimeframe) {
+      case '1mo': startDateObj = today.subtract(const Duration(days: 30)); break;
+      case '6mo': startDateObj = today.subtract(const Duration(days: 182)); break;
+      case '1y':  startDateObj = today.subtract(const Duration(days: 365)); break;
+      case 'max':
+      default:    startDateObj = trainEndDate; break;
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-  } finally {
-    setState(() => _isLoading = false);
+
+    if (startDateObj.isBefore(trainEndDate)) {
+      startDateObj = trainEndDate;
+    }
+
+    final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
+    final String finalEndStr = today.toIso8601String().substring(0, 10);
+
+    setState(() => _currentVisibleStartDate = finalStartStr);
+
+    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
+
+    try {
+      // 1. SCENARIE: INGEN SAMMENLIGNING
+      if (_selectedComparisonId == 'none') {
+        final response = await http.post(url, headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "tickers": _selectedPortfolioData!['tickers'],
+            "weights": _selectedPortfolioData!['weights'],
+            "test_start_date": finalStartStr, 
+            "test_end_date": finalEndStr,    
+            "benchmark": "SPY", // Ignoreres i UI'et alligevel
+          })
+        ).timeout(const Duration(seconds: 125));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          setState(() {
+            _portfolioSpots = _mapToSpots(data['portfolio']);
+            _portfolioStats = data['portfolio_stats'];
+            _benchmarkSpots = [];
+            _benchmarkStats = null;
+          });
+        }
+      } 
+      // 2. SCENARIE: STANDARD BENCHMARK
+      else if (_selectedComparisonId.startsWith('bench_')) {
+        final ticker = _selectedComparisonId.replaceFirst('bench_', '');
+        final response = await http.post(url, headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "tickers": _selectedPortfolioData!['tickers'],
+            "weights": _selectedPortfolioData!['weights'],
+            "test_start_date": finalStartStr, 
+            "test_end_date": finalEndStr,    
+            "benchmark": ticker, 
+          })
+        ).timeout(const Duration(seconds: 125));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          setState(() {
+            _portfolioSpots = _mapToSpots(data['portfolio']);
+            _portfolioStats = data['portfolio_stats'];
+            _benchmarkSpots = _mapToSpots(data['benchmark']);
+            _benchmarkStats = data['benchmark_stats'];
+          });
+        }
+      } 
+      // 3. SCENARIE: SAMMENLIGN MED ANDEN PORTEFØLJE
+      else {
+        // Find den anden porteføljes data
+        final compDoc = docs.firstWhere((d) => d.id == _selectedComparisonId);
+        final compData = compDoc.data() as Map<String, dynamic>;
+
+        // Send 2 API kald afsted samtidigt for at spare tid
+        final req1 = http.post(url, headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "tickers": _selectedPortfolioData!['tickers'],
+            "weights": _selectedPortfolioData!['weights'],
+            "test_start_date": finalStartStr, 
+            "test_end_date": finalEndStr,    
+            "benchmark": "SPY", 
+          })
+        );
+
+        final req2 = http.post(url, headers: {"Content-Type": "application/json"},
+          body: jsonEncode({
+            "tickers": compData['tickers'],
+            "weights": compData['weights'],
+            "test_start_date": finalStartStr, // Vi tvinger den til at starte samme dato!
+            "test_end_date": finalEndStr,    
+            "benchmark": "SPY", 
+          })
+        );
+
+        final responses = await Future.wait([req1, req2]).timeout(const Duration(seconds: 125));
+        
+        if (responses[0].statusCode == 200 && responses[1].statusCode == 200) {
+          final dataMain = jsonDecode(responses[0].body);
+          final dataComp = jsonDecode(responses[1].body);
+
+          setState(() {
+            _portfolioSpots = _mapToSpots(dataMain['portfolio']);
+            _portfolioStats = dataMain['portfolio_stats'];
+            
+            // Hent 'portfolio' dataen fra kald nr 2, og sæt den som vores 'benchmark'!
+            _benchmarkSpots = _mapToSpots(dataComp['portfolio']);
+            _benchmarkStats = dataComp['portfolio_stats'];
+          });
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
-}
 
   Future<void> _fetchCorrelationData() async {
     if (_selectedPortfolioData == null) return;
@@ -141,28 +198,17 @@ Future<void> _fetchBacktestData() async {
     DateTime startDateObj;
 
     switch (_selectedTimeframe) {
-      case '1mo':
-        startDateObj = today.subtract(const Duration(days: 30));
-        break;
-      case '6mo':
-        startDateObj = today.subtract(const Duration(days: 182));
-        break;
-      case '1y':
-        startDateObj = today.subtract(const Duration(days: 365));
-        break;
+      case '1mo': startDateObj = today.subtract(const Duration(days: 30)); break;
+      case '6mo': startDateObj = today.subtract(const Duration(days: 182)); break;
+      case '1y':  startDateObj = today.subtract(const Duration(days: 365)); break;
       case 'max':
-      default:
-        startDateObj = trainEndDate;
-        break;
+      default:    startDateObj = trainEndDate; break;
     }
 
-    if (startDateObj.isBefore(trainEndDate)) {
-      startDateObj = trainEndDate;
-    }
+    if (startDateObj.isBefore(trainEndDate)) startDateObj = trainEndDate;
 
     final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
-    final String finalEndStr =
-        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+    final String finalEndStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
     final url = Uri.parse('https://efficientfrontier.onrender.com/correlation');
 
@@ -186,17 +232,14 @@ Future<void> _fetchBacktestData() async {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error fetching correlation: $e")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching correlation: $e")));
     } finally {
       setState(() => _isCorrelationLoading = false);
     }
   }
-  // --- API KALD TIL BACKEND (Simulation) ---
+
   Future<void> _fetchSimulationData() async {
     if (_selectedPortfolioData == null) return;
-
     setState(() => _isSimulating = true);
 
     final String histStartDate = _selectedPortfolioData!['train_start_date'];
@@ -213,8 +256,8 @@ Future<void> _fetchBacktestData() async {
           "tickers": _selectedPortfolioData!['tickers'],
           "weights": _selectedPortfolioData!['weights'],
           "hist_start_date": histStartDate, 
-          "hist_end_date": finalEndStr,     
-          "days_to_sim": 252, // 1 års fremskrivning i spåkuglen
+          "hist_end_date": finalEndStr,    
+          "days_to_sim": 252, 
           "simulations": 1000,
         }),
       ).timeout(const Duration(seconds:90));
@@ -222,31 +265,33 @@ Future<void> _fetchBacktestData() async {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final forecast = data['forecast'];
-
         setState(() {
           _riskMetrics = data['risk_metrics'];
           _simulationPaths = {
-            'p95': _mapToSpots(forecast['p95']),
-            'p75': _mapToSpots(forecast['p75']),
-            'median': _mapToSpots(forecast['median']),
-            'p25': _mapToSpots(forecast['p25']),
-            'p5': _mapToSpots(forecast['p5']),
+            'p95': _mapToSpotsList(forecast['p95']),
+            'p75': _mapToSpotsList(forecast['p75']),
+            'median': _mapToSpotsList(forecast['median']),
+            'p25': _mapToSpotsList(forecast['p25']),
+            'p5': _mapToSpotsList(forecast['p5']),
           };
         });
       }
     } catch (e) {
-      print("Sim error: $e");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching simulation: $e")));
     } finally {
       setState(() => _isSimulating = false);
     }
   }
 
-  List<FlSpot> _mapToSpots(List<dynamic> values) {
+  List<FlSpot> _mapToSpotsList(List<dynamic> values) {
     return values.asMap().entries.map((e) => FlSpot(e.key.toDouble(), (e.value as num).toDouble())).toList();
   }
+  
+  List<FlSpot> _mapToSpots(List<dynamic> jsonList) {
+    return jsonList.map((p) => FlSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList();
+  }
 
-  // --- BUILD METODE ---
+// --- BUILD METODE ---
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -266,23 +311,23 @@ Future<void> _fetchBacktestData() async {
         ),
         body: user == null
             ? const Center(child: Text("Log ind for at se performance data"))
-            : Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    // --- GLOBAL KONTROL: Valg af portefølje ---
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .collection('saved_portfolios')
-                          .orderBy('timestamp', descending: true)
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) return const LinearProgressIndicator();
-                        final docs = snapshot.data!.docs;
+            : StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('saved_portfolios')
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                  final docs = snapshot.data!.docs;
 
-                        return DropdownButtonFormField<String>(
+                  return Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        // --- GLOBAL KONTROL: Valg af portefølje ---
+                        DropdownButtonFormField<String>(
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Vælg Portefølje',
@@ -304,126 +349,143 @@ Future<void> _fetchBacktestData() async {
                             setState(() {
                               _selectedPortfolioId = id;
                               _selectedPortfolioData = docs.firstWhere((d) => d.id == id).data() as Map<String, dynamic>;
+                              
+                              if (_selectedComparisonId == id) {
+                                _selectedComparisonId = 'bench_SPY';
+                              }
                             });
-                            _fetchBacktestData();
+                            _fetchBacktestData(docs); 
                             _fetchCorrelationData();
                             _fetchSimulationData();
                           },
-                        );
-                      },
-                    ),
+                        ),
 
-                    const SizedBox(height: 24),
+                        const SizedBox(height: 24),
 
-                    _buildCorrelationCard(theme),
+                        // Korrelationskortet er nu FJERNET herfra!
 
-                    const SizedBox(height: 16),
-
-                    // --- TAB BAR VIEW ---
-                    Expanded(
-                      child: TabBarView(
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: [
-                          // ==========================================
-                          // TAB 1: BACKTEST (Out-of-Sample)
-                          // ==========================================
-                          Column(
+                        // --- TAB BAR VIEW ---
+                        Expanded(
+                          child: TabBarView(
+                            physics: const NeverScrollableScrollPhysics(),
                             children: [
-                              const SizedBox(height: 16),
-                              
-                              // HER ER DE TO DROPDOWNS SIDE OM SIDE
-                              Row(
+                              // ==========================================
+                              // TAB 1: BACKTEST (Out-of-Sample)
+                              // ==========================================
+                              Column(
                                 children: [
-                                  // Benchmark valg
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Benchmark',
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  const SizedBox(height: 16),
+                                  
+                                  // DROPDOWNS SIDE OM SIDE
+                                  Row(
+                                    children: [
+                                      // SAMMENLIGNINGS DROPDOWN
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          isExpanded: true,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Sammenlign med',
+                                            border: OutlineInputBorder(),
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          ),
+                                          value: _selectedComparisonId,
+                                          items: [
+                                            const DropdownMenuItem(value: 'none', child: Text('Ingen', style: TextStyle(fontSize: 12))),
+                                            ..._benchmarks.map((ticker) => DropdownMenuItem(
+                                              value: 'bench_$ticker', 
+                                              child: Text('Benchmark: $ticker', style: const TextStyle(fontSize: 12))
+                                            )),
+                                            ...docs.where((doc) => doc.id != _selectedPortfolioId).map((doc) {
+                                              final data = doc.data() as Map<String, dynamic>;
+                                              return DropdownMenuItem(
+                                                value: doc.id,
+                                                child: Text('Portefølje: ${data['type']} (${data['tickers'].length} stk)', style: const TextStyle(fontSize: 12)),
+                                              );
+                                            }),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() => _selectedComparisonId = val);
+                                              _fetchBacktestData(docs);
+                                            }
+                                          },
+                                        ),
                                       ),
-                                      value: _selectedBenchmark,
-                                      items: _benchmarks.map((ticker) => DropdownMenuItem(value: ticker, child: Text(ticker))).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          setState(() => _selectedBenchmark = val);
-                                          _fetchBacktestData();
-                                        }
-                                      },
-                                    ),
+                                      const SizedBox(width: 12),
+                                      
+                                      // Test-længde valg
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          decoration: const InputDecoration(
+                                            labelText: 'Test-længde',
+                                            border: OutlineInputBorder(),
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          ),
+                                          value: _selectedTimeframe,
+                                          items: const [
+                                            DropdownMenuItem(value: '1mo', child: Text('1 MD')),
+                                            DropdownMenuItem(value: '6mo', child: Text('6 MDR')),
+                                            DropdownMenuItem(value: '1y', child: Text('1 ÅR')),
+                                            DropdownMenuItem(value: 'max', child: Text('ALT')),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() => _selectedTimeframe = val);
+                                              _fetchBacktestData(docs);
+                                              _fetchCorrelationData();
+                                              _fetchSimulationData();
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 12),
-                                  // Test-længde valg
+                                  
+                                  const SizedBox(height: 16),
+                                  
+                                  // ---> NY PLACERING AF KORRELATIONSKORTET <---
+                                  _buildCorrelationCard(theme),
+                                  
+                                  const SizedBox(height: 16),
+                                  
+                                  if (_portfolioStats != null && !_isLoading) _buildStatsTable(theme),
+                                  
+                                  const SizedBox(height: 16),
+                                  
                                   Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      decoration: const InputDecoration(
-                                        labelText: 'Test-længde',
-                                        border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      ),
-                                      value: _selectedTimeframe,
-                                      items: const [
-                                        DropdownMenuItem(value: '1mo', child: Text('1 MD')),
-                                        DropdownMenuItem(value: '6mo', child: Text('6 MDR')),
-                                        DropdownMenuItem(value: '1y', child: Text('1 ÅR')),
-                                        DropdownMenuItem(value: 'max', child: Text('ALT')),
-                                      ],
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          setState(() => _selectedTimeframe = val);
-                                          _fetchBacktestData();
-                                          _fetchCorrelationData();
-                                          _fetchSimulationData();
-                                        }
-                                      },
-                                    ),
+                                    child: _isLoading
+                                        ? const Center(child: CircularProgressIndicator())
+                                        : _portfolioSpots.isEmpty
+                                            ? const Center(child: Text("Vælg en portefølje for at se backtest"))
+                                            : _buildSlightlyWiderChart(LineChart(_buildChartData(theme))),
                                   ),
                                 ],
                               ),
-                              
-                              const SizedBox(height: 16),
-                              
-                              if (_portfolioStats != null && !_isLoading) _buildStatsTable(theme),
-                              
-                              const SizedBox(height: 16),
-                              
-                              Expanded(
-                                child: _isLoading
-                                    ? const Center(child: CircularProgressIndicator())
-                                    : _portfolioSpots.isEmpty
-                                        ? const Center(child: Text("Vælg en portefølje for at se backtest"))
-                                        : _buildSlightlyWiderChart(
-                                            LineChart(_buildChartData(theme)),
-                                          ),
+
+                              // ==========================================
+                              // TAB 2: SIMULATION (Fremtid)
+                              // ==========================================
+                              Column(
+                                children: [
+                                  if (_riskMetrics != null && !_isSimulating) _buildRiskMetricsBar(theme),
+                                  const SizedBox(height: 24),
+                                  Expanded(
+                                    child: _isSimulating
+                                        ? const Center(child: CircularProgressIndicator())
+                                        : _simulationPaths.isEmpty
+                                            ? const Center(child: Text("Vælg en portefølje for at se prognose"))
+                                            : _buildSimulationChart(theme),
+                                  ),
+                                  if (_simulationPaths.isNotEmpty) _buildSimulationLegend(theme),
+                                ],
                               ),
                             ],
                           ),
-
-                          // ==========================================
-                          // TAB 2: SIMULATION (Fremtid)
-                          // ==========================================
-
-
-                          
-                          Column(
-                            children: [
-                              if (_riskMetrics != null && !_isSimulating) _buildRiskMetricsBar(theme),
-                              const SizedBox(height: 24),
-                              Expanded(
-                                child: _isSimulating
-                                    ? const Center(child: CircularProgressIndicator())
-                                    : _simulationPaths.isEmpty
-                                        ? const Center(child: Text("Vælg en portefølje for at se prognose"))
-                                        : _buildSimulationChart(theme),
-                              ),
-                              if (_simulationPaths.isNotEmpty) _buildSimulationLegend(theme),
-                            ],
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
       ),
     );
@@ -441,9 +503,9 @@ Future<void> _fetchBacktestData() async {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _statItem("Sharpe", _portfolioStats?['sharpe'], _benchmarkStats?['sharpe']),
-            _statItem("Volatilitet", "${_portfolioStats?['volatility']}%", "${_benchmarkStats?['volatility']}%"),
-            _statItem("Afkast", "${_portfolioStats?['perf']}%", "${_benchmarkStats?['perf']}%"),
+            _statItem("Sharpe", _portfolioStats?['sharpe'],_benchmarkStats?['sharpe']),
+            _statItem("Volatilitet", "${_portfolioStats?['volatility']}%", _benchmarkStats != null ? "${_benchmarkStats?['volatility']}%" : null),
+            _statItem("Afkast", "${_portfolioStats?['perf']}%", _benchmarkStats != null ? "${_benchmarkStats?['perf']}%" : null),
           ],
         ),
       ),
@@ -451,12 +513,16 @@ Future<void> _fetchBacktestData() async {
   }
 
   Widget _statItem(String label, dynamic portVal, dynamic benchVal) {
+    bool hasComparison = _selectedComparisonId != 'none';
+    String prefix = _selectedComparisonId.startsWith('bench_') ? "B:" : "Sml:"; // Sml = Sammenligning
+
     return Column(
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
         const SizedBox(height: 4),
         Text("P: $portVal", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 11)),
-        Text("B: $benchVal", style: const TextStyle(color: Colors.orange, fontSize: 11)),
+        if (hasComparison && benchVal != null)
+          Text("$prefix $benchVal", style: const TextStyle(color: Colors.orange, fontSize: 11)),
       ],
     );
   }
@@ -475,10 +541,7 @@ Future<void> _fetchBacktestData() async {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    "Porteføljekorrelation",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
+                  const Text("Porteføljekorrelation", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                   const SizedBox(height: 4),
                   Text(
                     _isCorrelationLoading
@@ -494,10 +557,7 @@ Future<void> _fetchBacktestData() async {
                   ),
                   if (_correlationPeriod != null) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      _correlationPeriod!,
-                      style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600),
-                    ),
+                    Text(_correlationPeriod!, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600)),
                   ],
                 ],
               ),
@@ -508,81 +568,54 @@ Future<void> _fetchBacktestData() async {
     );
   }
 
-LineChartData _buildChartData(ThemeData theme) {
-  // Find det sidste punkt på x-aksen for at kunne give grafen lidt luft til højre
-  double maxXValue = _portfolioSpots.isNotEmpty ? _portfolioSpots.last.x : 0;
+  LineChartData _buildChartData(ThemeData theme) {
+    double maxXValue = _portfolioSpots.isNotEmpty ? _portfolioSpots.last.x : 0;
 
-  return LineChartData(
-    // 1. BUFFER: Vi giver grafen 5% ekstra plads til højre, så den ikke rammer kanten
-    maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
-    
-    // CLIP DATA: Sørger for at linjerne bliver inde i rammen
-    clipData: const FlClipData.all(),
-    
-    lineTouchData: LineTouchData(
-      touchTooltipData: LineTouchTooltipData(
-        getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
-        tooltipRoundedRadius: 8,
-        
-        // --- HER ER FIXET TIL DRAG/TOOLTIP ---
-        fitInsideHorizontally: true, // Spejlvender boksen hvis den rammer højre kant
-        fitInsideVertically: true,   // Holder boksen indenfor top/bund
-        // -------------------------------------
-
-        getTooltipItems: (List<LineBarSpot> touchedSpots) {
-          return touchedSpots.map((LineBarSpot touchedSpot) {
-            return LineTooltipItem(
-              touchedSpot.y.toStringAsFixed(2),
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            );
-          }).toList();
-        },
-      ),
-    ),
-    
-    // ... resten af dine gridData, titlesData, borderData og lineBarsData herunder
-
-    // 2. GRID: Vi tilføjer meget svage vertikale linjer for at hjælpe øjet
-    gridData: FlGridData(
-      show: true, 
-      drawVerticalLine: true, // Nu med vertikale linjer
-      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
-      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
-    ),
-
-    titlesData: FlTitlesData(
-      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    return LineChartData(
+      maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
+      clipData: const FlClipData.all(),
       
-      // 3. VENSTRE AKSE: Mere moderne look
-      leftTitles: AxisTitles(
-        sideTitles: SideTitles(
-          showTitles: false,
-          reservedSize: 0,
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (LineBarSpot touchedSpot) => Colors.blueGrey.withOpacity(0.8),
+          tooltipRoundedRadius: 8,
+          fitInsideHorizontally: true, 
+          fitInsideVertically: true,  
+          getTooltipItems: (List<LineBarSpot> touchedSpots) {
+            return touchedSpots.map((LineBarSpot touchedSpot) {
+              return LineTooltipItem(
+                touchedSpot.y.toStringAsFixed(2),
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              );
+            }).toList();
+          },
         ),
       ),
+      
+      gridData: FlGridData(
+        show: true, 
+        drawVerticalLine: true, 
+        getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+        getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+      ),
 
-      // 4. BUND AKSE DATOER
+      titlesData: FlTitlesData(
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false, reservedSize: 0)),
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 32,
-            interval: 64, // Viser en label ca. hver 3. måned
+            interval: 64, 
             getTitlesWidget: (value, meta) {
-              // Skjul labels i kanten for at undgå at de bliver mast
               if (value == meta.min || value == meta.max) return const SizedBox.shrink();
-              
               return SideTitleWidget(
                 meta: meta,
                 space: 8,
                 child: Text(
-                  // Her bruger vi din nye dynamiske startdato!
                   _formatDateLabel(value, _currentVisibleStartDate), 
-                  style: TextStyle(
-                    fontSize: 10, 
-                    fontWeight: FontWeight.w500, 
-                    color: Colors.blueGrey.shade600
-                  ),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Colors.blueGrey.shade600),
                 ),
               );
             },
@@ -590,133 +623,118 @@ LineChartData _buildChartData(ThemeData theme) {
         ),
       ),
 
-    borderData: FlBorderData(
-      show: true, 
-      border: Border(
-        bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
-        left: BorderSide(color: Colors.grey.withOpacity(0.2)),
+      borderData: FlBorderData(
+        show: true, 
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
+          left: BorderSide(color: Colors.grey.withOpacity(0.2)),
+        ),
       ),
-    ),
 
-    lineBarsData: [
-      LineChartBarData(
-        spots: _portfolioSpots,
-        isCurved: true,
-        color: theme.colorScheme.primary,
-        barWidth: 3,
-        dotData: const FlDotData(show: false),
-        belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.05)),
-      ),
-      LineChartBarData(
-        spots: _benchmarkSpots,
-        isCurved: true,
-        color: Colors.orange.withOpacity(0.7), // Gør benchmark lidt mere diskret
-        barWidth: 2,
-        dashArray: [5, 5],
-        dotData: const FlDotData(show: false),
-      ),
-    ],
-  );
-}
+      lineBarsData: [
+        LineChartBarData(
+          spots: _portfolioSpots,
+          isCurved: true,
+          color: theme.colorScheme.primary,
+          barWidth: 3,
+          dotData: const FlDotData(show: false),
+          belowBarData: BarAreaData(show: true, color: theme.colorScheme.primary.withOpacity(0.05)),
+        ),
+        // Vi tilføjer KUN den orange linje, hvis brugeren har valgt en benchmark/portefølje at sammenligne med
+        if (_benchmarkSpots.isNotEmpty)
+          LineChartBarData(
+            spots: _benchmarkSpots,
+            isCurved: true,
+            color: Colors.orange.withOpacity(0.7), 
+            barWidth: 2,
+            dashArray: [5, 5],
+            dotData: const FlDotData(show: false),
+          ),
+      ],
+    );
+  }
+
   // ==========================================
   // WIDGETS TIL SIMULATION (TAB 2)
   // ==========================================
 
   LineChartData _buildSimulationChartData(ThemeData theme) {
-  // Find det sidste punkt for at give grafen luft til højre (buffer)
-  double maxXValue = 0;
-  if (_simulationPaths.containsKey('median') && _simulationPaths['median']!.isNotEmpty) {
-    maxXValue = _simulationPaths['median']!.last.x;
-  }
+    double maxXValue = 0;
+    if (_simulationPaths.containsKey('median') && _simulationPaths['median']!.isNotEmpty) {
+      maxXValue = _simulationPaths['median']!.last.x;
+    }
 
-  // Vi definerer dags dato som startpunkt for tidsaksen i prognosen
-  final String todayStr = DateTime.now().toIso8601String().substring(0, 10);
+    final String todayStr = DateTime.now().toIso8601String().substring(0, 10);
 
-  return LineChartData(
-    // 1. BUFFER & CLIP: Giver 10% luft til højre og holder data indenfor rammen
-    maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
-    clipData: const FlClipData.all(),
+    return LineChartData(
+      maxX: maxXValue > 0 ? maxXValue * 1.1 : null,
+      clipData: const FlClipData.all(),
 
-    // 2. TOOLTIP FIX: Sørger for at boksene ikke forsvinder ved kanterne
-    lineTouchData: LineTouchData(
-      touchTooltipData: LineTouchTooltipData(
-        getTooltipColor: (spot) => Colors.blueGrey.withOpacity(0.8),
-        fitInsideHorizontally: true,
-        fitInsideVertically: true,
-        getTooltipItems: (List<LineBarSpot> touchedSpots) {
-          return touchedSpots.map((LineBarSpot touchedSpot) {
-            return LineTooltipItem(
-              touchedSpot.y.toStringAsFixed(2),
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            );
-          }).toList();
-        },
-      ),
-    ),
-
-    // 3. GRID: Svage linjer der matcher backtesten
-    gridData: FlGridData(
-      show: true,
-      drawVerticalLine: true,
-      getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
-      getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
-    ),
-
-    // 4. TITLES: SideTitleWidget for et skarpt look
-    titlesData: FlTitlesData(
-      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      
-      leftTitles: AxisTitles(
-        sideTitles: SideTitles(
-          showTitles: false,
-          reservedSize: 0,
-        ),
-      ),
-
-      bottomTitles: AxisTitles(
-        sideTitles: SideTitles(
-          showTitles: true,
-          reservedSize: 32,
-          interval: 64, // Viser dato ca. hver 3. måned
-          getTitlesWidget: (value, meta) {
-            if (value == meta.min || value == meta.max) return const SizedBox.shrink();
-
-            return SideTitleWidget(
-              meta: meta,
-              space: 8,
-              child: Text(
-                _formatDateLabel(value, todayStr),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.blueGrey.shade600,
-                ),
-              ),
-            );
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (spot) => Colors.blueGrey.withOpacity(0.8),
+          fitInsideHorizontally: true,
+          fitInsideVertically: true,
+          getTooltipItems: (List<LineBarSpot> touchedSpots) {
+            return touchedSpots.map((LineBarSpot touchedSpot) {
+              return LineTooltipItem(
+                touchedSpot.y.toStringAsFixed(2),
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              );
+            }).toList();
           },
         ),
       ),
-    ),
 
-    borderData: FlBorderData(
-      show: true,
-      border: Border(
-        bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
-        left: BorderSide(color: Colors.grey.withOpacity(0.2)),
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: true,
+        getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
+        getDrawingVerticalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05), strokeWidth: 1),
       ),
-    ),
 
-    // 5. DATA LAG (Viften)
-    lineBarsData: [
-      _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
-      _simLayer(spots: _simulationPaths['p25']!, color: theme.scaffoldBackgroundColor, fill: true),
-      _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
-      _simLayer(spots: _simulationPaths['p5']!, color: theme.scaffoldBackgroundColor, fill: true),
-      _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
-    ],
-  );
-}
+      titlesData: FlTitlesData(
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false, reservedSize: 0)),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 32,
+            interval: 64, 
+            getTitlesWidget: (value, meta) {
+              if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+              return SideTitleWidget(
+                meta: meta,
+                space: 8,
+                child: Text(
+                  _formatDateLabel(value, todayStr),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Colors.blueGrey.shade600),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+
+      borderData: FlBorderData(
+        show: true,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
+          left: BorderSide(color: Colors.grey.withOpacity(0.2)),
+        ),
+      ),
+
+      lineBarsData: [
+        _simLayer(spots: _simulationPaths['p75']!, color: theme.colorScheme.primary.withOpacity(0.25)),
+        _simLayer(spots: _simulationPaths['p25']!, color: theme.scaffoldBackgroundColor, fill: true),
+        _simLayer(spots: _simulationPaths['p95']!, color: theme.colorScheme.primary.withOpacity(0.1)),
+        _simLayer(spots: _simulationPaths['p5']!, color: theme.scaffoldBackgroundColor, fill: true),
+        _simLayer(spots: _simulationPaths['median']!, color: theme.colorScheme.primary, width: 3, fill: false),
+      ],
+    );
+  }
+
   Widget _buildRiskMetricsBar(ThemeData theme) {
     return Card(
       elevation: 0,
@@ -745,29 +763,24 @@ LineChartData _buildChartData(ThemeData theme) {
     );
   }
 
-  LineChartBarData _simLayer({required List<FlSpot> spots, required Color color, double width = 0, bool fill = true, List<FlSpot>? belowSpots}) {
+  LineChartBarData _simLayer({required List<FlSpot> spots, required Color color, double width = 0, bool fill = true}) {
     return LineChartBarData(
       spots: spots,
       isCurved: true,
       color: color,
       barWidth: width,
       dotData: const FlDotData(show: false),
-      belowBarData: BarAreaData(
-        show: fill,
-        color: color,
-      ),
+      belowBarData: BarAreaData(show: fill, color: color),
     );
   }
 
- Widget _buildSimulationChart(ThemeData theme) {
-  if (_simulationPaths.isEmpty) return const Center(child: Text("Ingen simuleringsdata"));
+  Widget _buildSimulationChart(ThemeData theme) {
+    if (_simulationPaths.isEmpty) return const Center(child: Text("Ingen simuleringsdata"));
 
-  return _buildSlightlyWiderChart(
-    LineChart(
-      _buildSimulationChartData(theme),
-    ),
-  );
-}
+    return _buildSlightlyWiderChart(
+      LineChart(_buildSimulationChartData(theme)),
+    );
+  }
 
   Widget _buildSlightlyWiderChart(Widget chart) {
     return LayoutBuilder(

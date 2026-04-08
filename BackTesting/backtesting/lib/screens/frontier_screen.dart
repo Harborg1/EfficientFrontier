@@ -43,7 +43,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   // --- NYE VARIABLER TIL MANUEL PORTEFØLJE ---
   Map<String, double> customWeights = {};
   DateTime customStartDate = DateTime.now().subtract(const Duration(days: 365 * 5));
-  DateTime customEndDate = DateTime.now();
+  DateTime customEndDate = DateTime.now().subtract(const Duration(days: 365));
   bool isCustomLoading = false;
   
   bool _isCustomPortfolioExpanded = false; 

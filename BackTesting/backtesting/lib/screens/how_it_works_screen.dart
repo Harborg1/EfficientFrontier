@@ -31,23 +31,23 @@ class HowItWorksScreen extends StatelessWidget {
                   const SizedBox(height: 24),
                   _InfoCard(
                     icon: Icons.tune_rounded,
-                    title: "1. Vælg aktier og indstillinger",
+                    title: "1. Vælg aktier og byg din portefølje",
                     body:
-                        "I porteføjleoptimeringsvinduet vælger du aktier ud fra deres ticker symbol, den maksimale vægt en aktie højest må have, tidshorisont og hvor mange porteføljer der skal simuleres.",
+                        "I porteføljeoptimeringsvinduet vælger du dine aktier. Du kan enten lade appen beregne den optimale vægtning via 'Efficient Frontier', eller du kan justere vægtene selv med den manuelle porteføljebygger.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.bubble_chart_rounded,
-                    title: "2. Appen finder effektive porteføljer",
+                    title: "2. Optimering og gemte porteføljer",
                     body:
-                        "Backend henter historiske kurser, beregner afkast og risiko og viser simuleringen som en sværm af punkter. Du får blandt andet en portefølje med høj Sharpe og en med lav volatilitet.",
+                        "Ved optimering simulerer appen tusindvis af fordelinger for at finde porteføljer med f.eks. høj Sharpe eller lav volatilitet. Du kan nemt gemme både optimerede og dine egne manuelle porteføljer direkte i skyen.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.history_toggle_off_rounded,
-                    title: "3. Se performance og backtest",
+                    title: "3. Performance og sammenligning",
                     body:
-                        "Når en portefølje er gemt, kan du se dens out-of-sample performance, sammenligne med benchmark (SPY,QQQ,DOW, IWM), beregne korrelation og se en fremadskuende simulering.",
+                        "Under 'Performance' kan du lave en out-of-sample backtest. Her kan du teste dine porteføljers afkast og risiko, og du kan sammenligne dem direkte med standard benchmarks (SPY, QQQ m.m.) eller dine andre gemte porteføljer.",
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -75,7 +75,8 @@ class HowItWorksScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   const _BulletLine(text: "Efficient frontier med årlig risiko og årlig afkast"),
                   const _BulletLine(text: "Max Sharpe ratio- og Min Volatilitet-porteføljer"),
-                  const _BulletLine(text: "Backtest mod benchmark"),
+                  const _BulletLine(text: "Mulighed for at designe og teste din egen manuelle portefølje"),
+                  const _BulletLine(text: "Backtest og sammenligning med benchmarks eller andre porteføljer"),
                   const _BulletLine(text: "Korrelation for den valgte portefølje"),
                   const _BulletLine(text: "Prognose/simulation for mulige fremtidige udfald"),
                   const SizedBox(height: 32),
