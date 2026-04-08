@@ -22,33 +22,60 @@ class _FrontierScreenState extends State<FrontierScreen> {
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "BRK-B", "JPM", "V", 
     "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC", "VZ", "KO", "PFE", 
     "INTC", "CMCSA", "NFLX", "ADBE", "T", "ABT", "PEP", "XOM", "CSCO"
-];
+  ];
 
-@override
-  void dispose() {
-    _tickerController.dispose();
-    _focusNode.dispose(); // <-- Vigtigt for at undgå memory leaks
-    super.dispose();
-  }
-
-  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']; // Pre-populated with 8 popular tickers for better initial visualization
+  List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE'];
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
   String _selectedTimeframe = '5 år';
   
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
-  final List<int> _portfolioOptions = [20000,40000, 70000, 100000];
+  final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
   final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
 
-  
   bool isLoading = false;
   bool showSimulation = false;
 
-  // --- API LOGIC ---
+  // --- NYE VARIABLER TIL MANUEL PORTEFØLJE ---
+  Map<String, double> customWeights = {};
+  DateTime customStartDate = DateTime.now().subtract(const Duration(days: 365 * 5));
+  DateTime customEndDate = DateTime.now();
+  bool isCustomLoading = false;
+  
+  bool _isCustomPortfolioExpanded = false; 
+
+  @override
+  void initState() {
+    super.initState();
+    _syncCustomWeights(); // Sikrer at standardaktierne har en vægt fra start
+  }
+
+  @override
+  void dispose() {
+    _tickerController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  // --- HJÆLPER: Synkroniser manuelle vægte med valgte aktier ---
+  void _syncCustomWeights() {
+    if (selectedTickers.isEmpty) {
+      customWeights.clear();
+      return;
+    }
+    double defaultWeight = 100.0 / selectedTickers.length;
+    for (var ticker in selectedTickers) {
+      customWeights.putIfAbsent(ticker, () => defaultWeight);
+    }
+    // Fjern tickers fra customWeights, som ikke længere er valgt
+    customWeights.removeWhere((key, value) => !selectedTickers.contains(key));
+  }
+
+  // --- API LOGIC (Optimering) ---
   Future<void> calculateFrontier() async {
     if (selectedTickers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -56,7 +83,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
       );
       return;
     }
-    // Safety check: Ensure weights can sum to 100%
     if (selectedTickers.length * _selectedMaxWeight < 1.0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Mathematical Error: ${selectedTickers.length} aktier med max vægt ${_selectedMaxWeight * 100}% kan ikke give 100%. Tilføj flere aktier eller øg max vægt.")),
@@ -69,13 +95,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
       showSimulation = true;
     });
 
-    // --- NY DATO LOGIK (Træning vs Test Split) ---
     final today = DateTime.now();
-    
-    // Vi tvinger TRÆNINGEN til at slutte for præcis 1 år siden. 
-    // Derved gemmer vi det seneste år til vores out-of-sample backtest!
     final endDate = DateTime(today.year - 1, today.month, today.day); 
-    
     DateTime startDate;
     switch (_selectedTimeframe) {
       case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
@@ -88,7 +109,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
     final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
     final tickerString = selectedTickers.join(',');
-    // UPDATED URL with new parameters
+    
     final url = Uri.parse(
       'https://efficientfrontier.onrender.com/optimize'
       '?tickers=$tickerString'
@@ -96,7 +117,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&start_date=$startStr'
       '&end_date=$endStr'
       '&num_portfolios=$_selectedPortfolios'
-      '&t=${DateTime.now().millisecondsSinceEpoch}' // Cache buster
+      '&t=${DateTime.now().millisecondsSinceEpoch}'
     );
     
     try {
@@ -108,13 +129,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
           return ScatterSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
         }).toList();
 
-        // CHANGED: Sort by X (volatility) and remove top 5% extreme risk outliers 
-        // to prevent the chart from stretching too far horizontally.
-          setState(() {
-    scatterSpots = rawSpots.map((s) => ScatterSpot(
-      s.x, s.y,
-      dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
-    )).toList();
+        setState(() {
+          scatterSpots = rawSpots.map((s) => ScatterSpot(
+            s.x, s.y,
+            dotPainter: FlDotCirclePainter(radius: 1, color: Colors.blueGrey.withOpacity(0.3))
+          )).toList();
           
           maxSharpe = data['max_sharpe'];
           minVol = data['min_vol'];
@@ -130,50 +149,112 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
   }
 
-  Widget _buildSettingsRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<double>(
-              decoration: const InputDecoration(labelText: "Maksimal vægt", border: OutlineInputBorder(), isDense: true),
-              value: _selectedMaxWeight,
-              items: _weightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
-              onChanged: (val) => setState(() => _selectedMaxWeight = val!),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              decoration: const InputDecoration(labelText: "Tidshorisont", border: OutlineInputBorder(), isDense: true),
-              value: _selectedTimeframe,
-              items: _timeframeOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (val) => setState(() => _selectedTimeframe = val!),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: DropdownButtonFormField<int>(
-              decoration: const InputDecoration(labelText: "Porteføljer", border: OutlineInputBorder(), isDense: true),
-              value: _selectedPortfolios,
-              items: _portfolioOptions.map((p) => DropdownMenuItem(value: p, child: Text(p.toString()))).toList(),
-              onChanged: (val) => setState(() => _selectedPortfolios = val!),
-            ),
-          ),
-        ],
-      ),
+  // --- DATO VÆLGER TIL MANUEL PORTEFØLJE ---
+  Future<void> _selectCustomDate(BuildContext context, bool isStart) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: isStart ? customStartDate : customEndDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
     );
+    if (picked != null) {
+      setState(() {
+        if (isStart) customStartDate = picked;
+        else customEndDate = picked;
+      });
+    }
+  }
+  
+  // --- GEM LOGIK (Manuel Portefølje) ---
+  Future<void> saveCustomPortfolio() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Log venligst ind for at gemme porteføljer.")));
+      return;
+    }
+
+    if (selectedTickers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vælg venligst mindst én aktie.")));
+      return;
+    }
+
+    setState(() => isCustomLoading = true);
+
+    try {
+      final userPortfoliosRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('saved_portfolios');
+
+      final startStr = "${customStartDate.year}-${customStartDate.month.toString().padLeft(2, '0')}-${customStartDate.day.toString().padLeft(2, '0')}";
+      final endStr = "${customEndDate.year}-${customEndDate.month.toString().padLeft(2, '0')}-${customEndDate.day.toString().padLeft(2, '0')}";
+
+      // Normaliser vægtene så de summerer til 1.0 (100%)
+      Map<String, double> normalizedWeights = {};
+      double totalWeight = customWeights.values.fold(0, (sum, item) => sum + item);
+      
+      for (var ticker in selectedTickers) {
+        normalizedWeights[ticker] = totalWeight > 0 ? (customWeights[ticker] ?? 0) / totalWeight : 0;
+      }
+
+      // 1. Hent afkast og volatilitet lydløst fra backenden
+      double annualReturn = 0.0;
+      double annualVolatility = 0.0;
+
+      final url = Uri.parse('https://efficientfrontier.onrender.com/portfolio-stats');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          "tickers": selectedTickers,
+          "weights": normalizedWeights,
+          "start_date": startStr,
+          "end_date": endStr,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final stats = json.decode(response.body);
+        // Backend returnerer f.eks. 15.5 for 15.5%. Vi deler med 100 for at gemme som decimal (0.155)
+        annualReturn = (stats['annualized_return_pct'] as num).toDouble() / 100;
+        annualVolatility = (stats['annualized_volatility_pct'] as num).toDouble() / 100;
+      } else {
+        print("Kunne ikke hente stats fra backend. Gemmer portefølje med 0.0");
+      }
+
+      // 2. Gem porteføljen i Firestore MED de rigtige tal
+      await userPortfoliosRef.add({
+        'type': 'Manuel',
+        'tickers': List.from(selectedTickers),
+        'return': annualReturn, 
+        'volatility': annualVolatility, 
+        'weights': normalizedWeights,
+        'train_start_date': startStr, 
+        'train_end_date': endStr,     
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Manuel portefølje er gemt med afkast og volatilitet!"))
+      );
+
+      // Luk accordion menuen for et renere UI
+      setState(() {
+        _isCustomPortfolioExpanded = false;
+      });
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Fejl under gem: $e")));
+    } finally {
+      setState(() => isCustomLoading = false);
+    }
   }
 
-  // --- FIRESTORE PERSISTENCE ---
-  // --- FIRESTORE PERSISTENCE ---
+  // --- FIRESTORE PERSISTENCE (Optimerede) ---
   Future<void> saveBothPortfolios() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Log venligst ind for at gemme porteføljer.")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Log venligst ind for at gemme porteføljer.")));
       return;
     }
 
@@ -184,56 +265,45 @@ class _FrontierScreenState extends State<FrontierScreen> {
           .doc(user.uid)
           .collection('saved_portfolios');
 
-      // --- NY DATO LOGIK (Træning vs Test Split) ---
-    final today = DateTime.now();
-    
-    // Vi tvinger TRÆNINGEN til at slutte for præcis 1 år siden. 
-    // Derved gemmer vi det seneste år til vores out-of-sample backtest!
-    final endDate = DateTime(today.year - 1, today.month, today.day); 
-    
-    DateTime startDate;
-    switch (_selectedTimeframe) {
-      case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-      case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-      case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-      case '5 år':
-      default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
-    }
+      final today = DateTime.now();
+      final endDate = DateTime(today.year - 1, today.month, today.day); 
+      DateTime startDate;
+      switch (_selectedTimeframe) {
+        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+        case '5 år':
+        default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
+      }
 
-    final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
-    final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
+      final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
+      final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
 
-      // 1. Max Sharpe Entry
       batch.set(userPortfoliosRef.doc(), {
         'type': 'Max Sharpe',
         'tickers': List.from(selectedTickers),
         'return': maxSharpe!['y'],
         'weights': maxSharpe!['weights'],
-        'train_start_date': startStr, // GEM TRÆNINGSSTART
-        'train_end_date': endStr,     // GEM TRÆNINGSSLUT
+        'train_start_date': startStr, 
+        'train_end_date': endStr,     
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      // 2. Min Risk Entry
       batch.set(userPortfoliosRef.doc(), {
         'type': 'Min Risk',
         'tickers': List.from(selectedTickers),
         'return': minVol!['y'],
         'weights': minVol!['weights'],
-        'train_start_date': startStr, // GEM TRÆNINGSSTART
-        'train_end_date': endStr,     // GEM TRÆNINGSSLUT
+        'train_start_date': startStr, 
+        'train_end_date': endStr,     
         'timestamp': FieldValue.serverTimestamp(),
       });
 
       try {
         await batch.commit();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Begge porteføljer er gemt i Firestore!")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Begge porteføljer er gemt i Firestore!")));
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Database fejl: $e")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Database fejl: $e")));
       }
     }
   }
@@ -272,12 +342,23 @@ class _FrontierScreenState extends State<FrontierScreen> {
   Widget _buildInputView(bool isWide) {
     return Column(
       children: [
-        _buildInputSection(),
-        _buildTickerArea(),
-        const SizedBox(height: 15),
-        _buildSettingsRow(),
-        const Spacer(),
-        _buildSavedPortfoliosSection(),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Column(
+              children: [
+                _buildInputSection(),
+                _buildTickerArea(),
+                const SizedBox(height: 15),
+                _buildSettingsRow(),
+                const SizedBox(height: 10),
+                _buildCustomPortfolioSection(), 
+                const SizedBox(height: 20),
+                _buildSavedPortfoliosSection(), 
+              ],
+            ),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.all(24.0),
           child: SizedBox(
@@ -289,11 +370,124 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 foregroundColor: Colors.white,
               ),
               onPressed: isLoading ? null : calculateFrontier,
-              child: const Text("Lav Simulation", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: const Text("Generér Efficient Frontier", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCustomPortfolioSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.calculate_outlined, color: Colors.blueAccent),
+              title: const Text("Test egen manuel portefølje", style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text("Angiv specifikke vægte og datoer"),
+              trailing: Icon(_isCustomPortfolioExpanded ? Icons.expand_less : Icons.expand_more),
+              onTap: () {
+                setState(() {
+                  _isCustomPortfolioExpanded = !_isCustomPortfolioExpanded;
+                });
+              },
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              child: !_isCustomPortfolioExpanded 
+                ? const SizedBox.shrink() 
+                : Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.date_range, size: 18),
+                                label: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text("Start: ${customStartDate.year}-${customStartDate.month.toString().padLeft(2, '0')}-${customStartDate.day.toString().padLeft(2, '0')}"),
+                                ),
+                                onPressed: () => _selectCustomDate(context, true),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.date_range, size: 18),
+                                label: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text("Slut: ${customEndDate.year}-${customEndDate.month.toString().padLeft(2, '0')}-${customEndDate.day.toString().padLeft(2, '0')}"),
+                                ),
+                                onPressed: () => _selectCustomDate(context, false),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text("Juster porteføljevægte (normaliseres automatisk til 100%)", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        
+                        if (selectedTickers.isEmpty) 
+                          const Text("Tilføj aktier for at justere vægte.", style: TextStyle(fontStyle: FontStyle.italic)),
+                        
+                        ...selectedTickers.map((ticker) {
+                          double defaultVal = selectedTickers.isNotEmpty ? 100.0 / selectedTickers.length : 10.0;
+                          double currentVal = customWeights[ticker] ?? defaultVal;
+
+                          return Row(
+                            children: [
+                              SizedBox(width: 60, child: Text(ticker, style: const TextStyle(fontWeight: FontWeight.bold))),
+                              Expanded(
+                                child: Slider(
+                                  value: currentVal.clamp(0.0, 100.0), 
+                                  min: 0,
+                                  max: 100,
+                                  divisions: 100,
+                                  label: "${currentVal.toInt()}",
+                                  onChanged: (val) {
+                                    setState(() {
+                                      customWeights[ticker] = val;
+                                    });
+                                  },
+                                ),
+                              ),
+                              SizedBox(width: 40, child: Text("${currentVal.toInt()}%")),
+                            ],
+                          );
+                        }),
+
+                        const SizedBox(height: 16),
+                        
+                        SizedBox(
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: isCustomLoading || selectedTickers.isEmpty ? null : saveCustomPortfolio,
+                            icon: isCustomLoading 
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.cloud_upload),
+                            label: Text(isCustomLoading ? "Gemmer..." : "Gem Manuel Portefølje"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -339,26 +533,21 @@ class _FrontierScreenState extends State<FrontierScreen> {
       child: RawAutocomplete<String>(
         focusNode: _focusNode,
         textEditingController: _tickerController,
-        // 1. Filtreringslogik
         optionsBuilder: (TextEditingValue textEditingValue) {
           final input = textEditingValue.text.toUpperCase().trim();
-          if (input.isEmpty) {
-            return const Iterable<String>.empty();
-          }
-          // Vis kun aktier der matcher input, og som IKKE allerede er i selectedTickers
+          if (input.isEmpty) return const Iterable<String>.empty();
           return _tickerUniverse.where((ticker) {
             return ticker.contains(input) && !selectedTickers.contains(ticker);
           });
         },
-        // 2. Hvad der sker når brugeren trykker på et forslag
         onSelected: (String selection) {
           setState(() {
             selectedTickers.add(selection);
+            _syncCustomWeights(); 
           });
-          _tickerController.clear(); // Ryd feltet
-          _focusNode.requestFocus(); // Hold tastaturet åbent, så man hurtigt kan tilføje flere
+          _tickerController.clear(); 
+          _focusNode.requestFocus(); 
         },
-        // 3. Selve tekstfeltet
         fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
           return TextField(
             controller: controller,
@@ -366,10 +555,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
             onSubmitted: (value) {
               if (value.isNotEmpty) {
                 final newTicker = value.toUpperCase().trim();
-                // Tjek at den ikke allerede findes, uanset om det er via tryk eller enter-knap
                 if (!selectedTickers.contains(newTicker)) {
                   setState(() {
                     selectedTickers.add(newTicker);
+                    _syncCustomWeights(); 
                     controller.clear();
                   });
                 }
@@ -387,6 +576,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     if (!selectedTickers.contains(newTicker)) {
                       setState(() {
                         selectedTickers.add(newTicker);
+                        _syncCustomWeights(); 
                         controller.clear();
                       });
                     }
@@ -397,7 +587,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
             ),
           );
         },
-        // 4. Designet af dropdown-menuen
         optionsViewBuilder: (context, onSelected, options) {
           return Align(
             alignment: Alignment.topLeft,
@@ -431,12 +620,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   Widget _buildTickerArea() {
     return Container(
-      // Slightly increased max height to give the chips more breathing room
       constraints: const BoxConstraints(maxHeight: 140), 
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: SingleChildScrollView(
         child: Padding(
-          // Added bottom padding so the scroll view doesn't clip the bottom edges
           padding: const EdgeInsets.only(bottom: 8.0), 
           child: Wrap(
             spacing: 8, runSpacing: 4,
@@ -444,14 +631,19 @@ class _FrontierScreenState extends State<FrontierScreen> {
               ...selectedTickers.map((ticker) => Chip(
                 visualDensity: VisualDensity.compact,
                 label: Text(ticker, style: const TextStyle(fontSize: 12)),
-                onDeleted: () => setState(() => selectedTickers.remove(ticker)),
+                onDeleted: () => setState(() {
+                  selectedTickers.remove(ticker);
+                  _syncCustomWeights(); 
+                }),
               )),
               if (selectedTickers.isNotEmpty)
                 ActionChip(
-                  // Added compact visual density here to match the other chips!
                   visualDensity: VisualDensity.compact, 
                   label: const Text("Ryd alle", style: TextStyle(color: Colors.red, fontSize: 12)),
-                  onPressed: () => setState(() => selectedTickers.clear()),
+                  onPressed: () => setState(() {
+                    selectedTickers.clear();
+                    _syncCustomWeights(); 
+                  }),
                 ),
             ],
           ),
@@ -460,17 +652,51 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
+  Widget _buildSettingsRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<double>(
+              decoration: const InputDecoration(labelText: "Maksimal vægt", border: OutlineInputBorder(), isDense: true),
+              value: _selectedMaxWeight,
+              items: _weightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
+              onChanged: (val) => setState(() => _selectedMaxWeight = val!),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: "Tidshorisont", border: OutlineInputBorder(), isDense: true),
+              value: _selectedTimeframe,
+              items: _timeframeOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+              onChanged: (val) => setState(() => _selectedTimeframe = val!),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              decoration: const InputDecoration(labelText: "Porteføljer", border: OutlineInputBorder(), isDense: true),
+              value: _selectedPortfolios,
+              items: _portfolioOptions.map((p) => DropdownMenuItem(value: p, child: Text(p.toString()))).toList(),
+              onChanged: (val) => setState(() => _selectedPortfolios = val!),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChartSection() {
     if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("Ingen data"));
     if (isLoading) return const Center(child: CircularProgressIndicator());
 
-    // 1. Calculate base bounds from the filtered scatter spots
     double minXVal = scatterSpots.map((s) => s.x).reduce(min);
     double maxXVal = scatterSpots.map((s) => s.x).reduce(max);
     double minYVal = scatterSpots.map((s) => s.y).reduce(min);
     double maxYVal = scatterSpots.map((s) => s.y).reduce(max);
 
-    // 2. Expand bounds to ensure Max Sharpe point is included
     if (maxSharpe != null) {
       minXVal = min(minXVal, (maxSharpe!['x'] as num).toDouble());
       maxXVal = max(maxXVal, (maxSharpe!['x'] as num).toDouble());
@@ -478,7 +704,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
       maxYVal = max(maxYVal, (maxSharpe!['y'] as num).toDouble());
     }
 
-    // 3. Expand bounds to ensure Min Risk point is included
     if (minVol != null) {
       minXVal = min(minXVal, (minVol!['x'] as num).toDouble());
       maxXVal = max(maxXVal, (minVol!['x'] as num).toDouble());
@@ -486,11 +711,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       maxYVal = max(maxYVal, (minVol!['y'] as num).toDouble());
     }
 
-    // 4. Calculate safe padding (handles negative stock returns properly)
     double xPadding = (maxXVal - minXVal) * 0.05;
     double yPadding = (maxYVal - minYVal) * 0.05;
     
-    // Safety check just in case all points are perfectly identical
     if (xPadding == 0) xPadding = 0.05;
     if (yPadding == 0) yPadding = 0.05;
 
@@ -532,10 +755,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       reservedSize: 30, 
                       interval: 0.05,
                       getTitlesWidget: (v, m) {
-                        // Hide the explicit min and max boundary labels to prevent overlap
-                        if (v == m.min || v == m.max) {
-                          return const SizedBox.shrink();
-                        }
+                        if (v == m.min || v == m.max) return const SizedBox.shrink();
                         return Padding(
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
@@ -549,12 +769,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     sideTitles: SideTitles(
                       showTitles: true, 
                       reservedSize: 40,
-                      interval: 0.05, // <-- ADD THIS LINE HERE
+                      interval: 0.05,
                       getTitlesWidget: (v, m) {
-                        // Hide the explicit min and max boundary labels to prevent overlap
-                        if (v == m.min || v == m.max) {
-                          return const SizedBox.shrink();
-                        }
+                        if (v == m.min || v == m.max) return const SizedBox.shrink();
                         return Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10));
                       },
                     ),
@@ -584,7 +801,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _legendItem(Colors.red, "Maks Sharpe"),
-           const SizedBox(width: 20),
           const SizedBox(width: 20),
           _legendItem(Colors.blue, "Min volatilitet"),
         ],
@@ -604,55 +820,59 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   Widget _buildSavedPortfoliosSection() {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const Center(child: Text("Log in to see saved portfolios"));
+    if (user == null) {
+      return const Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Center(child: Text("Log in to see saved portfolios")),
+      );
+    }
 
-    return Expanded(
-      child: Column(
-        children: [
-          const Divider(),
-          const Text("Mine porteføljer", style: TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(user.uid)
-                  .collection('saved_portfolios')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) return const Center(child: Text("Ingen porteføljer gemt endnu", style: TextStyle(fontSize: 12)));
+    return Column(
+      mainAxisSize: MainAxisSize.min, 
+      children: [
+        const Divider(),
+        const Text("Mine porteføljer", style: TextStyle(fontWeight: FontWeight.bold)),
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('saved_portfolios')
+              .orderBy('timestamp', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+            
+            final docs = snapshot.data!.docs;
+            if (docs.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("Ingen porteføljer gemt endnu", style: TextStyle(fontSize: 12))));
 
-                return ListView.builder(
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final bool isMaxSharpe = data['type'] == 'Max Sharpe';
+            return ListView.builder(
+              shrinkWrap: true, 
+              physics: const NeverScrollableScrollPhysics(), 
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final data = docs[index].data() as Map<String, dynamic>;
+                final bool isMaxSharpe = data['type'] == 'Max Sharpe';
 
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(
-                        isMaxSharpe ? Icons.trending_up : Icons.shield_outlined,
-                        color: isMaxSharpe ? Colors.red : Colors.blue,
-                        size: 20,
-                      ),
-                      title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
-                      subtitle: Text("Årligt afkast: ${(data['return'] * 100).toStringAsFixed(1)}%"),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: () => docs[index].reference.delete(),
-                      ),
-                      onTap: () => _showWeightsDialog(context, data),
-                    );
-                  },
+                return ListTile(
+                  dense: true,
+                  leading: Icon(
+                    isMaxSharpe ? Icons.trending_up : Icons.shield_outlined,
+                    color: isMaxSharpe ? Colors.red : Colors.blue,
+                    size: 20,
+                  ),
+                  title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
+                  subtitle: Text("Årligt afkast: ${(data['return'] * 100).toStringAsFixed(1)}%"),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () => docs[index].reference.delete(),
+                  ),
+                  onTap: () => _showWeightsDialog(context, data),
                 );
               },
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        ),
+      ],
     );
   }
 

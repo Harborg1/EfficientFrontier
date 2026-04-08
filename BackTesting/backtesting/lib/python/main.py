@@ -45,6 +45,72 @@ class CorrelationRequest(BaseModel):
     test_start_date: str 
     test_end_date: str
 
+class PortfolioStatsRequest(BaseModel):
+    tickers: List[str]
+    weights: Dict[str, float]
+    start_date: str = "2020-01-01"
+    end_date: str = "2025-12-31"
+
+
+
+# --- ENDPOINT 5: Custom Portfolio Stats ---
+@app.post("/portfolio-stats")
+async def calculate_portfolio_stats(data: PortfolioStatsRequest):
+    try:
+        # Download data for the requested period
+        df = yf.download(
+            data.tickers, 
+            start=data.start_date, 
+            end=data.end_date, 
+            auto_adjust=False
+        )['Adj Close']
+        
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Could not retrieve market data for the specified period")
+
+        # Handle the case where yfinance returns a Series instead of a DataFrame (if only 1 ticker is queried)
+        if isinstance(df, pd.Series):
+            df = df.to_frame(name=data.tickers[0])
+
+        returns = df.pct_change().dropna()
+        valid_tickers = [t for t in data.tickers if t in returns.columns]
+        
+        if not valid_tickers:
+            raise HTTPException(status_code=400, detail="None of the provided tickers had valid data.")
+
+        # Normalize weights for the valid tickers
+        w_array = np.array([data.weights.get(t, 0) for t in valid_tickers])
+        if w_array.sum() == 0:
+            raise HTTPException(status_code=400, detail="Total weight of valid tickers is 0.")
+        w_array /= w_array.sum()
+        
+        # --- BUY & HOLD MATH (Consistent with your backtest endpoint) ---
+        cum_returns_assets = (1 + returns[valid_tickers]).cumprod()
+        port_cum_value = (cum_returns_assets * w_array).sum(axis=1)
+        port_daily = (port_cum_value / port_cum_value.shift(1).fillna(1.0)) - 1.0
+        
+        # Calculate Annualized Return and Volatility
+        # Assuming 252 trading days in a year
+        ann_return = port_daily.mean() * 252 * 100
+        ann_volatility = port_daily.std() * np.sqrt(252) * 100
+        
+        # Calculate CAGR (Compound Annual Growth Rate) as an alternative metric
+        years = len(port_daily) / 252
+        cagr = ((port_cum_value.iloc[-1] / 1.0) ** (1 / years) - 1) * 100 if years > 0 else 0
+
+        return {
+            "period_start": data.start_date,
+            "period_end": data.end_date,
+            "valid_tickers": valid_tickers,
+            "annualized_return_pct": round(float(ann_return), 2),
+            "annualized_volatility_pct": round(float(ann_volatility), 2),
+            "cagr_pct": round(float(cagr), 2)
+        }
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- ENDPOINT 1: OPTIMIZE (Træning) ---
 @app.get("/optimize")
 
