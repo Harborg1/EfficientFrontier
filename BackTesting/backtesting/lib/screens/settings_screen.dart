@@ -146,7 +146,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           // Theme Section
           SwitchListTile(
-            title: const Text('Mørkt tema'),
+            title: const Text('Dark theme'),
             secondary: const Icon(Icons.brightness_6_outlined),
             value: isDark,
             onChanged: (val) => themeProvider.toggleTheme(val),
@@ -156,7 +156,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Security Section
           ListTile(
             leading: const Icon(Icons.lock_outline),
-            title: const Text('Ændre password'),
+            title: const Text('Change password'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _changePassword,
           ),
@@ -164,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Danger Zone
           ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
-            title: const Text('Slet bruger', style: TextStyle(color: Colors.redAccent)),
+            title: const Text('Delete account', style: TextStyle(color: Colors.redAccent)),
             onTap: _showDeleteAccountDialog,
           ),
         ],

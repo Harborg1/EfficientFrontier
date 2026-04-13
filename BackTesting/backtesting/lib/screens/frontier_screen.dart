@@ -235,7 +235,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Manuel portefølje er gemt med afkast og volatilitet!"))
+        const SnackBar(content: Text("Manual portfolio saved with return and volatility!"))
       );
 
       // Luk accordion menuen for et renere UI
@@ -244,7 +244,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       });
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Fejl under gem: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving portfolio: $e")));
     } finally {
       setState(() => isCustomLoading = false);
     }
@@ -254,7 +254,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   Future<void> saveBothPortfolios() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Log venligst ind for at gemme porteføljer.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please log in to save portfolios.")));
       return;
     }
 
@@ -301,9 +301,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
       try {
         await batch.commit();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Begge porteføljer er gemt i Firestore!")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Both portfolios saved to Firestore!")));
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Database fejl: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Database error: $e")));
       }
     }
   }
@@ -314,7 +314,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Porteføljeoptimering"),
+        title: const Text("Portfolio Optimization"),
         leading: IconButton(
           icon: Icon(showSimulation ? Icons.close : Icons.arrow_back),
           onPressed: () {
@@ -370,7 +370,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 foregroundColor: Colors.white,
               ),
               onPressed: isLoading ? null : calculateFrontier,
-              child: const Text("Generér Efficient Frontier", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: const Text("Start Simulation", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ),
@@ -388,8 +388,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.calculate_outlined, color: Colors.blueAccent),
-              title: const Text("Test egen manuel portefølje", style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text("Angiv specifikke vægte og datoer"),
+              title: const Text("Test Custom Portfolio", style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text("Specify custom weights and dates"),
               trailing: Icon(_isCustomPortfolioExpanded ? Icons.expand_less : Icons.expand_more),
               onTap: () {
                 setState(() {
@@ -425,7 +425,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                                 icon: const Icon(Icons.date_range, size: 18),
                                 label: FittedBox(
                                   fit: BoxFit.scaleDown,
-                                  child: Text("Slut: ${customEndDate.year}-${customEndDate.month.toString().padLeft(2, '0')}-${customEndDate.day.toString().padLeft(2, '0')}"),
+                                  child: Text("End: ${customEndDate.year}-${customEndDate.month.toString().padLeft(2, '0')}-${customEndDate.day.toString().padLeft(2, '0')}"),
                                 ),
                                 onPressed: () => _selectCustomDate(context, false),
                               ),
@@ -433,11 +433,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        const Text("Juster porteføljevægte (normaliseres automatisk til 100%)", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        const Text("Adjust portfolio weights (automatically normalized to 100%)", style: TextStyle(fontSize: 12, color: Colors.grey)),
                         const SizedBox(height: 8),
                         
                         if (selectedTickers.isEmpty) 
-                          const Text("Tilføj aktier for at justere vægte.", style: TextStyle(fontStyle: FontStyle.italic)),
+                          const Text("Add stocks to adjust weights.", style: TextStyle(fontStyle: FontStyle.italic)),
                         
                         ...selectedTickers.map((ticker) {
                           double defaultVal = selectedTickers.isNotEmpty ? 100.0 / selectedTickers.length : 10.0;
@@ -474,7 +474,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                             icon: isCustomLoading 
                                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                                 : const Icon(Icons.cloud_upload),
-                            label: Text(isCustomLoading ? "Gemmer..." : "Gem Manuel Portefølje"),
+                            label: Text(isCustomLoading ? "Saving..." : "Save Custom Portfolio"),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               foregroundColor: Colors.white,
@@ -513,12 +513,12 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 ElevatedButton.icon(
                   onPressed: () => setState(() => showSimulation = false),
                   icon: const Icon(Icons.edit),
-                  label: const Text("Juster aktier"),
+                  label: const Text("Adjust Stocks"),
                 ),
                 ElevatedButton.icon(
                   onPressed: saveBothPortfolios,
                   icon: const Icon(Icons.cloud_upload),
-                  label: const Text("Gem begge i skyen"),
+                  label: const Text("Save Both to Cloud"),
                 ),
               ],
             ),
@@ -567,7 +567,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
             },
             decoration: InputDecoration(
               isDense: true, 
-              labelText: "Søg og tilføj aktiesymbol (f.eks. NVDA)",
+              labelText: "Add stock symbol (e.g. NVDA)",
               suffixIcon: IconButton(
                 icon: const Icon(Icons.add_circle),
                 onPressed: () {
@@ -639,7 +639,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
               if (selectedTickers.isNotEmpty)
                 ActionChip(
                   visualDensity: VisualDensity.compact, 
-                  label: const Text("Ryd alle", style: TextStyle(color: Colors.red, fontSize: 12)),
+                  label: const Text("Clear all", style: TextStyle(color: Colors.red, fontSize: 12)),
                   onPressed: () => setState(() {
                     selectedTickers.clear();
                     _syncCustomWeights(); 
@@ -659,7 +659,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         children: [
           Expanded(
             child: DropdownButtonFormField<double>(
-              decoration: const InputDecoration(labelText: "Maksimal vægt", border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(labelText: "Max Weight", border: OutlineInputBorder(), isDense: true),
               value: _selectedMaxWeight,
               items: _weightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
               onChanged: (val) => setState(() => _selectedMaxWeight = val!),
@@ -668,7 +668,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: DropdownButtonFormField<String>(
-              decoration: const InputDecoration(labelText: "Tidshorisont", border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(labelText: "Time Horizon", border: OutlineInputBorder(), isDense: true),
               value: _selectedTimeframe,
               items: _timeframeOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
               onChanged: (val) => setState(() => _selectedTimeframe = val!),
@@ -677,7 +677,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: DropdownButtonFormField<int>(
-              decoration: const InputDecoration(labelText: "Porteføljer", border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(labelText: "Portfolios", border: OutlineInputBorder(), isDense: true),
               value: _selectedPortfolios,
               items: _portfolioOptions.map((p) => DropdownMenuItem(value: p, child: Text(p.toString()))).toList(),
               onChanged: (val) => setState(() => _selectedPortfolios = val!),
@@ -689,7 +689,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   Widget _buildChartSection() {
-    if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("Ingen data"));
+    if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("No data"));
     if (isLoading) return const Center(child: CircularProgressIndicator());
 
     double minXVal = scatterSpots.map((s) => s.x).reduce(min);
@@ -748,7 +748,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 ],
                 titlesData: FlTitlesData(
                   bottomTitles: AxisTitles(
-                    axisNameWidget: const Text("Årlig volatilitet", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    axisNameWidget: const Text("Annual Volatility", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     axisNameSize: 25,
                     sideTitles: SideTitles(
                       showTitles: true, 
@@ -764,7 +764,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     ),
                   ),
                   leftTitles: AxisTitles(
-                    axisNameWidget: const Text("Årlig afkast", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    axisNameWidget: const Text("Annual Return", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     axisNameSize: 25,
                     sideTitles: SideTitles(
                       showTitles: true, 
@@ -800,9 +800,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _legendItem(Colors.red, "Maks Sharpe"),
+          _legendItem(Colors.red, "Max Sharpe"),
           const SizedBox(width: 20),
-          _legendItem(Colors.blue, "Min volatilitet"),
+          _legendItem(Colors.blue, "Min Volatility"),
         ],
       ),
     );
@@ -831,7 +831,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       mainAxisSize: MainAxisSize.min, 
       children: [
         const Divider(),
-        const Text("Mine porteføljer", style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text("My Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('users')
@@ -843,7 +843,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
             
             final docs = snapshot.data!.docs;
-            if (docs.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("Ingen porteføljer gemt endnu", style: TextStyle(fontSize: 12))));
+            if (docs.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("No portfolios saved yet", style: TextStyle(fontSize: 12))));
 
             return ListView.builder(
               shrinkWrap: true, 
@@ -861,7 +861,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     size: 20,
                   ),
                   title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
-                  subtitle: Text("Årligt afkast: ${(data['return'] * 100).toStringAsFixed(1)}%"),
+                  subtitle: Text("Annual Return: ${(data['return'] * 100).toStringAsFixed(1)}%"),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, size: 18),
                     onPressed: () => docs[index].reference.delete(),

@@ -222,7 +222,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           "test_start_date": finalStartStr,
           "test_end_date": finalEndStr,
         }),
-      ).timeout(const Duration(seconds: 90));
+      ).timeout(const Duration(seconds: 120));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -305,12 +305,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           bottom: const TabBar(
             tabs: [
               Tab(text: "Out-of-Sample Test", icon: Icon(Icons.history)),
-              Tab(text: "Fremtid (Prognose)", icon: Icon(Icons.auto_graph)),
+              Tab(text: "Future (Prediction)", icon: Icon(Icons.auto_graph)),
             ],
           ),
         ),
         body: user == null
-            ? const Center(child: Text("Log ind for at se performance data"))
+            ? const Center(child: Text("Login to view performance data"))
             : StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('users')
@@ -330,7 +330,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: 'Vælg Portefølje',
+                            labelText: 'Select Portfolio',
                             border: OutlineInputBorder(),
                             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           ),
@@ -340,7 +340,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                             return DropdownMenuItem(
                               value: doc.id,
                               child: Text(
-                                "${data['type']} (${data['tickers'].length} aktier) - Trænet: ${data['train_start_date'] ?? 'N/A'}-${data['train_end_date'] ?? 'N/A'}",
+                                "${data['type']} (${data['tickers'].length} stocks) - Trained: ${data['train_start_date'] ?? 'N/A'}-${data['train_end_date'] ?? 'N/A'}",
                                 style: const TextStyle(fontSize: 12),
                               ),
                             );
@@ -384,13 +384,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                         child: DropdownButtonFormField<String>(
                                           isExpanded: true,
                                           decoration: const InputDecoration(
-                                            labelText: 'Sammenlign med',
+                                            labelText: 'Compare with',
                                             border: OutlineInputBorder(),
                                             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                           ),
                                           value: _selectedComparisonId,
                                           items: [
-                                            const DropdownMenuItem(value: 'none', child: Text('Ingen', style: TextStyle(fontSize: 12))),
+                                            const DropdownMenuItem(value: 'none', child: Text('None', style: TextStyle(fontSize: 12))),
                                             ..._benchmarks.map((ticker) => DropdownMenuItem(
                                               value: 'bench_$ticker', 
                                               child: Text('Benchmark: $ticker', style: const TextStyle(fontSize: 12))
@@ -399,7 +399,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                               final data = doc.data() as Map<String, dynamic>;
                                               return DropdownMenuItem(
                                                 value: doc.id,
-                                                child: Text('Portefølje: ${data['type']} (${data['tickers'].length} stk)', style: const TextStyle(fontSize: 12)),
+                                                child: Text('Portfolio: ${data['type']} (${data['tickers'].length} stocks)', style: const TextStyle(fontSize: 12)),
                                               );
                                             }),
                                           ],
@@ -417,16 +417,16 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                       Expanded(
                                         child: DropdownButtonFormField<String>(
                                           decoration: const InputDecoration(
-                                            labelText: 'Test-længde',
+                                            labelText: 'Test-length',
                                             border: OutlineInputBorder(),
                                             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                           ),
                                           value: _selectedTimeframe,
                                           items: const [
-                                            DropdownMenuItem(value: '1mo', child: Text('1 MD')),
-                                            DropdownMenuItem(value: '6mo', child: Text('6 MDR')),
-                                            DropdownMenuItem(value: '1y', child: Text('1 ÅR')),
-                                            DropdownMenuItem(value: 'max', child: Text('ALT')),
+                                            DropdownMenuItem(value: '1mo', child: Text('1 Month')),
+                                            DropdownMenuItem(value: '6mo', child: Text('6 Months')),
+                                            DropdownMenuItem(value: '1y', child: Text('1 Year')),
+                                            DropdownMenuItem(value: 'max', child: Text('Max')),
                                           ],
                                           onChanged: (val) {
                                             if (val != null) {
@@ -456,7 +456,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                     child: _isLoading
                                         ? const Center(child: CircularProgressIndicator())
                                         : _portfolioSpots.isEmpty
-                                            ? const Center(child: Text("Vælg en portefølje for at se backtest"))
+                                            ? const Center(child: Text("Select a portfolio to view backtest results"))
                                             : _buildSlightlyWiderChart(LineChart(_buildChartData(theme))),
                                   ),
                                 ],
@@ -473,7 +473,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                     child: _isSimulating
                                         ? const Center(child: CircularProgressIndicator())
                                         : _simulationPaths.isEmpty
-                                            ? const Center(child: Text("Vælg en portefølje for at se prognose"))
+                                            ? const Center(child: Text("Select a portfolio to view simulation results"))
                                             : _buildSimulationChart(theme),
                                   ),
                                   if (_simulationPaths.isNotEmpty) _buildSimulationLegend(theme),
@@ -504,8 +504,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _statItem("Sharpe", _portfolioStats?['sharpe'],_benchmarkStats?['sharpe']),
-            _statItem("Volatilitet", "${_portfolioStats?['volatility']}%", _benchmarkStats != null ? "${_benchmarkStats?['volatility']}%" : null),
-            _statItem("Afkast", "${_portfolioStats?['perf']}%", _benchmarkStats != null ? "${_benchmarkStats?['perf']}%" : null),
+            _statItem("Volatility", "${_portfolioStats?['volatility']}%", _benchmarkStats != null ? "${_benchmarkStats?['volatility']}%" : null),
+            _statItem("Return", "${_portfolioStats?['perf']}%", _benchmarkStats != null ? "${_benchmarkStats?['perf']}%" : null),
           ],
         ),
       ),
@@ -541,13 +541,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Porteføljekorrelation", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const Text("Portfolio Correlation", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                   const SizedBox(height: 4),
                   Text(
                     _isCorrelationLoading
-                        ? "Beregner korrelation..."
+                        ? "Calculating correlation..."
                         : _portfolioCorrelation == null
-                            ? "Ingen korrelation tilgængelig"
+                            ? "No correlation available"
                             : _portfolioCorrelation!.toStringAsFixed(3),
                     style: TextStyle(
                       fontSize: 22,
@@ -775,7 +775,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 
   Widget _buildSimulationChart(ThemeData theme) {
-    if (_simulationPaths.isEmpty) return const Center(child: Text("Ingen simuleringsdata"));
+    if (_simulationPaths.isEmpty) return const Center(child: Text("No simulation data available"));
 
     return _buildSlightlyWiderChart(
       LineChart(_buildSimulationChartData(theme)),
@@ -806,9 +806,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           _legendCircle(theme.colorScheme.primary, "Median"),
           const SizedBox(width: 15),
-          _legendCircle(theme.colorScheme.primary.withOpacity(0.6), "Sandsynlig (50%)"),
+          _legendCircle(theme.colorScheme.primary.withOpacity(0.6), "Probable (50%)"),
           const SizedBox(width: 15),
-          _legendCircle(theme.colorScheme.primary.withOpacity(0.1), "Ekstrem (90%)"),
+          _legendCircle(theme.colorScheme.primary.withOpacity(0.1), "Extreme (90%)"),
         ],
       ),
     );

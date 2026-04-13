@@ -109,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       // Simpel App Bar
       appBar: AppBar(
-        title: const Text("Velkommen tilbage"),
+        title: const Text("Welcome Back"),
         centerTitle: true,
       ),
       // Centrer indholdet lodret på skærmen
@@ -136,18 +136,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    labelText: 'E-mail adresse',
+                    labelText: 'E-mail address',
                     prefixIcon: Icon(Icons.email_outlined),
                     border: OutlineInputBorder(),
                   ),
                   // Validatoren modtager den tekst, brugeren har indtastet.
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Indtast venligst din e-mail';
+                      return 'Please enter your email';
                     }
                     // Simpelt tjek for '@' symbolet
                     if (!value.contains('@')) {
-                      return 'Indtast venligst en gyldig e-mail';
+                      return 'Please enter a valid email';
                     }
                     return null;
                   },
@@ -160,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: !_erAdgangskodeSynlig, // Skifter synlighed
                   textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
-                    labelText: 'Adgangskode',
+                    labelText: 'Password',
                     prefixIcon: const Icon(Icons.lock_outlined),
                     border: const OutlineInputBorder(),
                     // Lille øje-ikon knap til at vise/skjule adgangskode
@@ -180,10 +180,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Indtast venligst din adgangskode';
+                      return 'Please enter your password';
                     }
                     if (value.length < 6) {
-                      return 'Adgangskoden skal være på mindst 6 tegn';
+                      return 'Password must be at least 6 characters long';
                     }
                     return null;
                   },
@@ -197,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     textStyle: const TextStyle(fontSize: 18),
                   ),
-                  child: const Text('Log ind'),
+                  child: const Text('Login'),
                 ),
                 
                 const SizedBox(height: 16),
@@ -209,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       MaterialPageRoute(builder: (context) => const RegisterScreen()),
                     );
                   }, 
-                  child: const Text("Har du ikke en konto? Opret dig her")
+                  child: const Text("Don't have an account? Sign up")
                 )
               ],
             ),

@@ -62,7 +62,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       } on FirebaseAuthException catch (e) {
         // Håndtér fejl (f.eks. hvis e-mailen allerede er i brug)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? 'Der opstod en fejl')),
+          SnackBar(content: Text(e.message ?? 'An error occurred')),
         );
       }
     }
@@ -72,7 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Opret konto"),
+        title: const Text("Make Account"),
         centerTitle: true,
       ),
       body: Center(
@@ -94,11 +94,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _navnController,
                   decoration: const InputDecoration(
-                    labelText: 'Brugernavn',
+                    labelText: 'Username',
                     prefixIcon: Icon(Icons.person_outline),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) => (value == null || value.isEmpty) ? 'Indtast et brugernavn' : null,
+                  validator: (value) => (value == null || value.isEmpty) ? 'Enter a username' : null,
                 ),
                 const SizedBox(height: 16),
 
@@ -107,11 +107,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
-                    labelText: 'E-mail adresse',
+                    labelText: 'Email Address',
                     prefixIcon: Icon(Icons.email_outlined),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) => (value != null && value.contains('@')) ? null : 'Indtast en gyldig e-mail',
+                  validator: (value) => (value != null && value.contains('@')) ? null : 'Enter a valid email address',
                 ),
                 const SizedBox(height: 16),
 
@@ -120,7 +120,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _adgangskodeController,
                   obscureText: !_erAdgangskodeSynlig,
                   decoration: InputDecoration(
-                    labelText: 'Adgangskode',
+                    labelText: 'Password',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(_erAdgangskodeSynlig ? Icons.visibility : Icons.visibility_off),
@@ -128,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     border: const OutlineInputBorder(),
                   ),
-                  validator: (value) => (value != null && value.length >= 6) ? null : 'Mindst 6 tegn påkrævet',
+                  validator: (value) => (value != null && value.length >= 6) ? null : 'At least 6 characters required',
                 ),
                 const SizedBox(height: 16),
 
@@ -137,12 +137,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _bekraeftAdgangskodeController,
                   obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: 'Bekræft adgangskode',
+                    labelText: 'Confirm Password',
                     prefixIcon: Icon(Icons.lock_reset),
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
-                    if (value != _adgangskodeController.text) return 'Adgangskoderne er ikke ens';
+                    if (value != _adgangskodeController.text) return 'The passwords do not match';
                     return null;
                   },
                 ),
@@ -154,7 +154,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: const Text('Opret konto'),
+                  child: const Text('Make Account'),
                 ),
                 
                 // --- Skift til login ---
@@ -166,7 +166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       MaterialPageRoute(builder: (context) => const LoginScreen()),
                     );
                   }, 
-                  child: const Text("Har du allerede en konto? Log ind"),
+                  child: const Text("Already have an account? Sign in"),
                 ),
               ],
             ),

@@ -9,7 +9,7 @@ class HowItWorksScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Sådan virker appen"),
+        title: const Text("How the app works"),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -21,7 +21,7 @@ class HowItWorksScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Portfolio Optimizer hjælper dig med at bygge, teste og forstå din portefølje.",
+                    "Portfolio Optimizer helps you build, test, and understand your portfolio.",
                     style: TextStyle(
                       fontSize: 18,
                       height: 1.5,
@@ -31,34 +31,34 @@ class HowItWorksScreen extends StatelessWidget {
                   const SizedBox(height: 24),
                   _InfoCard(
                     icon: Icons.tune_rounded,
-                    title: "1. Vælg aktier og byg din portefølje",
+                    title: "1. Choose stocks and build your portfolio",
                     body:
-                        "I porteføljeoptimeringsvinduet vælger du dine aktier. Du kan enten lade appen beregne den optimale vægtning via 'Efficient Frontier', eller du kan justere vægtene selv med den manuelle porteføljebygger.",
+                        "In the portfolio optimization window, you choose your stocks. You can either let the app calculate the optimal weighting using the 'Efficient Frontier', or you can adjust the weights yourself with the manual portfolio builder.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.bubble_chart_rounded,
-                    title: "2. Optimering og gemte porteføljer",
+                    title: "2. Optimization and saved portfolios",
                     body:
-                        "Ved optimering simulerer appen tusindvis af fordelinger for at finde porteføljer med f.eks. høj Sharpe eller lav volatilitet. Du kan nemt gemme både optimerede og dine egne manuelle porteføljer direkte i skyen.",
+                        "During optimization, the app simulates thousands of allocations to find portfolios with, for example, high Sharpe or low volatility. You can easily save both optimized portfolios and your own manual portfolios directly to the cloud.",
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.history_toggle_off_rounded,
-                    title: "3. Performance og sammenligning",
+                    title: "3. Performance and comparison",
                     body:
-                        "Under 'Performance' kan du lave en out-of-sample backtest. Her kan du teste dine porteføljers afkast og risiko, og du kan sammenligne dem direkte med standard benchmarks (SPY, QQQ m.m.) eller dine andre gemte porteføljer.",
+                        "Under 'Performance', you can run an out-of-sample backtest. Here, you can test your portfolio's return and risk, and compare it directly with standard benchmarks (SPY, QQQ, etc.) or your other saved portfolios.",
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    "Sådan bruges perioderne",
+                    "How the periods are used",
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    """Tidshorisonten på porteføljeoptimerings skærmen bruges som træningsvinduet for at finde de vægte der giver det bedste afkast. I "Vis performance" ses en out-of-sample test med de samme vægte, så du kan vurdere, hvordan porteføljen klarer sig efter optimeringen.""",
+                    """The time horizon on the portfolio optimization screen is used as the training window to find the weights that provide the best return. In "View Performance", you see an out-of-sample test using the same weights, so you can evaluate how the portfolio performs after the optimization.""",
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.5,
@@ -67,18 +67,18 @@ class HowItWorksScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    "Hvad du ser i appen",
+                    "What you see in the app",
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const _BulletLine(text: "Efficient frontier med årlig risiko og årlig afkast"),
-                  const _BulletLine(text: "Max Sharpe ratio- og Min Volatilitet-porteføljer"),
-                  const _BulletLine(text: "Mulighed for at designe og teste din egen manuelle portefølje"),
-                  const _BulletLine(text: "Backtest og sammenligning med benchmarks eller andre porteføljer"),
-                  const _BulletLine(text: "Korrelation for den valgte portefølje"),
-                  const _BulletLine(text: "Prognose/simulation for mulige fremtidige udfald"),
+                  const _BulletLine(text: "Efficient frontier with annual risk and annual return"),
+                  const _BulletLine(text: "Max Sharpe ratio and Min Volatility portfolios"),
+                  const _BulletLine(text: "Option to design and test your own manual portfolio"),
+                  const _BulletLine(text: "Backtest and comparison with benchmarks or other portfolios"),
+                  const _BulletLine(text: "Correlation for the selected portfolio"),
+                  const _BulletLine(text: "Forecast/simulation for possible future outcomes"),
                   const SizedBox(height: 32),
                   SizedBox(
                     width: double.infinity,
@@ -86,7 +86,7 @@ class HowItWorksScreen extends StatelessWidget {
                     child: FilledButton.icon(
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text("Tilbage"),
+                      label: const Text("Back"),
                     ),
                   ),
                 ],
