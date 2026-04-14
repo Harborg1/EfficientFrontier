@@ -744,9 +744,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _simStatItem("Tabsrisiko (1 år)", "${_riskMetrics!['prob_of_loss_percent']}%", Colors.redAccent),
-            _simStatItem("Forventet slutkurs", "${_riskMetrics!['expected_final_value']}", Colors.green),
-            _simStatItem("CVaR (Værste 5%)", "${_riskMetrics!['worst_case_cvar_5pct']}", Colors.deepOrange),
+            _simStatItem("Risk of loss (1 year)", "${_riskMetrics!['prob_of_loss_percent']}%", Colors.redAccent),
+            _simStatItem("Expected Value (1 year)", "${_riskMetrics!['expected_final_value']}", Colors.green),
+            _simStatItem("CVaR (Worst 5%)", "${_riskMetrics!['worst_case_cvar_5pct']}", Colors.deepOrange),
           ],
         ),
       ),
