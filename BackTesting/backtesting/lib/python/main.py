@@ -89,10 +89,12 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
         port_cum_value = (cum_returns_assets * w_array).sum(axis=1)
         port_daily = (port_cum_value / port_cum_value.shift(1).fillna(1.0)) - 1.0
         
-        # Calculate Annualized Return and Volatility
+        # Calculate Annualized Return, Volatility and Sortino
         # Assuming 252 trading days in a year
         ann_return = port_daily.mean() * 252 * 100
         ann_volatility = port_daily.std() * np.sqrt(252) * 100
+        downside_std = port_daily[port_daily < 0].std()
+        sortino = (port_daily.mean() / downside_std) * np.sqrt(252) if downside_std != 0 and not np.isnan(downside_std) else 0
         
         # Calculate CAGR (Compound Annual Growth Rate) as an alternative metric
         years = len(port_daily) / 252
@@ -104,6 +106,7 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
             "valid_tickers": valid_tickers,
             "annualized_return_pct": round(float(ann_return), 2),
             "annualized_volatility_pct": round(float(ann_volatility), 2),
+            "sortino_ratio": round(float(sortino), 2),
             "cagr_pct": round(float(cagr), 2)
         }
         
@@ -169,8 +172,23 @@ def get_portfolio_data(
     
     port_returns = np.dot(valid_weights, returns_annual)
     port_volatility = np.sqrt(np.sum(np.dot(valid_weights, cov_annual) * valid_weights, axis=1))
+    port_sortino = np.zeros(len(valid_weights))
+    daily_return_values = returns_daily.values
+    chunk_size = 5000
+    for start in range(0, len(valid_weights), chunk_size):
+        end = start + chunk_size
+        chunk_daily = np.dot(daily_return_values, valid_weights[start:end].T)
+        downside_std = np.where(chunk_daily < 0, chunk_daily, np.nan)
+        downside_std = np.nanstd(downside_std, axis=0)
+        chunk_mean = np.mean(chunk_daily, axis=0)
+        port_sortino[start:end] = np.divide(
+            chunk_mean * np.sqrt(250),
+            downside_std,
+            out=np.zeros_like(chunk_mean),
+            where=(downside_std != 0) & ~np.isnan(downside_std)
+        )
 
-    portfolio = {'Returns': port_returns, 'Volatility': port_volatility}
+    portfolio = {'Returns': port_returns, 'Volatility': port_volatility, 'Sortino': port_sortino}
     for counter, symbol in enumerate(selected):
         portfolio[symbol+' weight'] = valid_weights[:, counter]
 
@@ -182,6 +200,9 @@ def get_portfolio_data(
 
     least_var_idx = df['Volatility'].idxmin()
     min_vol_port = df.loc[least_var_idx]
+
+    best_sortino_idx = df['Sortino'].idxmax()
+    max_sortino_port = df.loc[best_sortino_idx]
 
     def extract_weights(port_series):
         return {symbol: round(float(port_series[symbol+' weight']), 4) for symbol in selected}
@@ -198,6 +219,12 @@ def get_portfolio_data(
             "x": float(min_vol_port['Volatility']), 
             "y": float(min_vol_port['Returns']),
             "weights": extract_weights(min_vol_port)
+        },
+        "max_sortino": {
+            "x": float(max_sortino_port['Volatility']),
+            "y": float(max_sortino_port['Returns']),
+            "sortino": float(max_sortino_port['Sortino']),
+            "weights": extract_weights(max_sortino_port)
         }
     }
 
@@ -237,6 +264,8 @@ async def backtest(data: BacktestRequest):
             total_return = (cum_rets.iloc[-1] - 1) * 100
             vol = daily_rets.std() * np.sqrt(252) * 100
             sharpe = (daily_rets.mean() / daily_rets.std()) * np.sqrt(252) if daily_rets.std() != 0 else 0
+            downside_std = daily_rets[daily_rets < 0].std()
+            sortino = (daily_rets.mean() / downside_std) * np.sqrt(252) if downside_std != 0 and not np.isnan(downside_std) else 0
             
             peak = cum_rets.cummax()
             drawdown = (cum_rets - peak) / peak
@@ -244,6 +273,7 @@ async def backtest(data: BacktestRequest):
             
             return {
                 "sharpe": round(float(sharpe), 2),
+                "sortino": round(float(sortino), 2),
                 "volatility": round(float(vol), 2),
                 "perf": round(float(total_return), 2),
                 "max_drawdown": round(float(max_dd), 2)

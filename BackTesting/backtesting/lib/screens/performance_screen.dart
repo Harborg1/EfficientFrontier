@@ -504,6 +504,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _statItem("Sharpe", _portfolioStats?['sharpe'],_benchmarkStats?['sharpe']),
+            _statItem("Sortino", _portfolioStats?['sortino'],_benchmarkStats?['sortino']),
             _statItem("Volatility", "${_portfolioStats?['volatility']}%", _benchmarkStats != null ? "${_benchmarkStats?['volatility']}%" : null),
             _statItem("Return", "${_portfolioStats?['perf']}%", _benchmarkStats != null ? "${_benchmarkStats?['perf']}%" : null),
           ],

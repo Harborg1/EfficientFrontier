@@ -36,6 +36,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
+  Map<String, dynamic>? maxSortino;
 
   bool isLoading = false;
   bool showSimulation = false;
@@ -137,6 +138,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           
           maxSharpe = data['max_sharpe'];
           minVol = data['min_vol'];
+          maxSortino = data['max_sortino'];
           isLoading = false;
         });
       }
@@ -200,6 +202,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       // 1. Hent afkast og volatilitet lydløst fra backenden
       double annualReturn = 0.0;
       double annualVolatility = 0.0;
+      double sortinoRatio = 0.0;
 
       final url = Uri.parse('https://efficientfrontier.onrender.com/portfolio-stats');
       final response = await http.post(
@@ -218,6 +221,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         // Backend returnerer f.eks. 15.5 for 15.5%. Vi deler med 100 for at gemme som decimal (0.155)
         annualReturn = (stats['annualized_return_pct'] as num).toDouble() / 100;
         annualVolatility = (stats['annualized_volatility_pct'] as num).toDouble() / 100;
+        sortinoRatio = (stats['sortino_ratio'] as num?)?.toDouble() ?? 0.0;
       } else {
         print("Kunne ikke hente stats fra backend. Gemmer portefølje med 0.0");
       }
@@ -228,6 +232,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'tickers': List.from(selectedTickers),
         'return': annualReturn, 
         'volatility': annualVolatility, 
+        'sortino': sortinoRatio,
         'weights': normalizedWeights,
         'train_start_date': startStr, 
         'train_end_date': endStr,     
@@ -251,14 +256,86 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   // --- FIRESTORE PERSISTENCE (Optimerede) ---
-  Future<void> saveBothPortfolios() async {
+  Future<void> showSavePortfolioDialog() async {
+    if (maxSharpe == null || minVol == null || maxSortino == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Run the optimizer before saving portfolios.")),
+      );
+      return;
+    }
+
+    final selectedTypes = <String>{'Max Sharpe', 'Min Risk', 'Max Sortino'};
+
+    final typesToSave = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void toggleType(String type, bool? isSelected) {
+              setDialogState(() {
+                if (isSelected == true) {
+                  selectedTypes.add(type);
+                } else {
+                  selectedTypes.remove(type);
+                }
+              });
+            }
+
+            return AlertDialog(
+              title: const Text("Save portfolios"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CheckboxListTile(
+                    value: selectedTypes.contains('Max Sharpe'),
+                    onChanged: (value) => toggleType('Max Sharpe', value),
+                    title: const Text("Max Sharpe"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                  CheckboxListTile(
+                    value: selectedTypes.contains('Min Risk'),
+                    onChanged: (value) => toggleType('Min Risk', value),
+                    title: const Text("Min Volatility"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                  CheckboxListTile(
+                    value: selectedTypes.contains('Max Sortino'),
+                    onChanged: (value) => toggleType('Max Sortino', value),
+                    title: const Text("Max Sortino"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text("Cancel"),
+                ),
+                ElevatedButton(
+                  onPressed: selectedTypes.isEmpty
+                      ? null
+                      : () => Navigator.of(context).pop(Set<String>.from(selectedTypes)),
+                  child: const Text("Save"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (typesToSave == null || typesToSave.isEmpty) return;
+    await saveSelectedPortfolios(typesToSave);
+  }
+
+  Future<void> saveSelectedPortfolios(Set<String> typesToSave) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please log in to save portfolios.")));
       return;
     }
 
-    if (maxSharpe != null && minVol != null) {
+    if (maxSharpe != null && minVol != null && maxSortino != null) {
       final batch = FirebaseFirestore.instance.batch();
       final userPortfoliosRef = FirebaseFirestore.instance
           .collection('users')
@@ -279,29 +356,50 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
       final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
 
-      batch.set(userPortfoliosRef.doc(), {
-        'type': 'Max Sharpe',
-        'tickers': List.from(selectedTickers),
-        'return': maxSharpe!['y'],
-        'weights': maxSharpe!['weights'],
-        'train_start_date': startStr, 
-        'train_end_date': endStr,     
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      if (typesToSave.contains('Max Sharpe')) {
+        batch.set(userPortfoliosRef.doc(), {
+          'type': 'Max Sharpe',
+          'tickers': List.from(selectedTickers),
+          'return': maxSharpe!['y'],
+          'volatility': maxSharpe!['x'],
+          'sharpe': maxSharpe!['sharpe'],
+          'weights': maxSharpe!['weights'],
+          'train_start_date': startStr, 
+          'train_end_date': endStr,     
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
 
-      batch.set(userPortfoliosRef.doc(), {
-        'type': 'Min Risk',
-        'tickers': List.from(selectedTickers),
-        'return': minVol!['y'],
-        'weights': minVol!['weights'],
-        'train_start_date': startStr, 
-        'train_end_date': endStr,     
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      if (typesToSave.contains('Min Risk')) {
+        batch.set(userPortfoliosRef.doc(), {
+          'type': 'Min Risk',
+          'tickers': List.from(selectedTickers),
+          'return': minVol!['y'],
+          'volatility': minVol!['x'],
+          'weights': minVol!['weights'],
+          'train_start_date': startStr, 
+          'train_end_date': endStr,     
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (typesToSave.contains('Max Sortino')) {
+        batch.set(userPortfoliosRef.doc(), {
+          'type': 'Max Sortino',
+          'tickers': List.from(selectedTickers),
+          'return': maxSortino!['y'],
+          'volatility': maxSortino!['x'],
+          'sortino': maxSortino!['sortino'],
+          'weights': maxSortino!['weights'],
+          'train_start_date': startStr, 
+          'train_end_date': endStr,     
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
 
       try {
         await batch.commit();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Both portfolios saved to Firestore!")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${typesToSave.length} portfolio(s) saved to Firestore!")));
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Database error: $e")));
       }
@@ -516,9 +614,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   label: const Text("Adjust Stocks"),
                 ),
                 ElevatedButton.icon(
-                  onPressed: saveBothPortfolios,
+                  onPressed: showSavePortfolioDialog,
                   icon: const Icon(Icons.cloud_upload),
-                  label: const Text("Save Both to Cloud"),
+                  label: const Text("Save to Cloud"),
                 ),
               ],
             ),
@@ -711,6 +809,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
       maxYVal = max(maxYVal, (minVol!['y'] as num).toDouble());
     }
 
+    if (maxSortino != null) {
+      minXVal = min(minXVal, (maxSortino!['x'] as num).toDouble());
+      maxXVal = max(maxXVal, (maxSortino!['x'] as num).toDouble());
+      minYVal = min(minYVal, (maxSortino!['y'] as num).toDouble());
+      maxYVal = max(maxYVal, (maxSortino!['y'] as num).toDouble());
+    }
+
     double xPadding = (maxXVal - minXVal) * 0.05;
     double yPadding = (maxYVal - minYVal) * 0.05;
     
@@ -744,6 +849,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     ScatterSpot(
                       (minVol!['x'] as num).toDouble(), (minVol!['y'] as num).toDouble(),
                       dotPainter: FlDotCirclePainter(radius: 8, color: Colors.blue, strokeWidth: 2, strokeColor: Colors.white),
+                    ),
+                  if (maxSortino != null)
+                    ScatterSpot(
+                      (maxSortino!['x'] as num).toDouble(), (maxSortino!['y'] as num).toDouble(),
+                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.purple, strokeWidth: 2, strokeColor: Colors.white),
                     ),
                 ],
                 titlesData: FlTitlesData(
@@ -803,6 +913,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
           _legendItem(Colors.red, "Max Sharpe"),
           const SizedBox(width: 20),
           _legendItem(Colors.blue, "Min Volatility"),
+          const SizedBox(width: 20),
+          _legendItem(Colors.green, "Max Sortino"),
         ],
       ),
     );
@@ -852,12 +964,21 @@ class _FrontierScreenState extends State<FrontierScreen> {
               itemBuilder: (context, index) {
                 final data = docs[index].data() as Map<String, dynamic>;
                 final bool isMaxSharpe = data['type'] == 'Max Sharpe';
+                final bool isMaxSortino = data['type'] == 'Max Sortino';
 
                 return ListTile(
                   dense: true,
                   leading: Icon(
-                    isMaxSharpe ? Icons.trending_up : Icons.shield_outlined,
-                    color: isMaxSharpe ? Colors.red : Colors.blue,
+                    isMaxSharpe
+                        ? Icons.trending_up
+                        : isMaxSortino
+                            ? Icons.trending_up_outlined
+                            : Icons.shield_outlined,
+                    color: isMaxSharpe
+                        ? Colors.red
+                        : isMaxSortino
+                            ? Colors.green
+                            : Colors.blue,
                     size: 20,
                   ),
                   title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
