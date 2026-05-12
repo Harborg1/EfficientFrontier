@@ -914,7 +914,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           const SizedBox(width: 20),
           _legendItem(Colors.blue, "Min Volatility"),
           const SizedBox(width: 20),
-          _legendItem(Colors.green, "Max Sortino"),
+          _legendItem(Colors.purple, "Max Sortino"),
         ],
       ),
     );
