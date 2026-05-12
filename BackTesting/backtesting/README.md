@@ -1,16 +1,64 @@
-# backtesting
+# Backtesting Flutter App
 
-A new Flutter project.
+This folder contains the Flutter frontend for the Efficient Frontier Portfolio Optimizer.
 
-## Getting Started
+## Main Features
 
-This project is a starting point for a Flutter application.
+- Portfolio construction from a predefined stock universe.
+- Efficient frontier simulation with max weight constraints.
+- Optimized portfolio candidates: Max Sharpe, Min Volatility, and Max Sortino.
+- Manual portfolio builder with custom weights.
+- Firebase authentication and saved portfolio history.
+- Out-of-sample backtesting against benchmarks or other saved portfolios.
+- Correlation analysis and bootstrap-based future outcome simulation.
 
-A few resources to get you started if this is your first Flutter project:
+## App Screens
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- `frontier_screen.dart`: stock selection, efficient frontier simulation, optimized portfolio saving, and manual portfolio creation.
+- `performance_screen.dart`: saved portfolio backtesting, benchmark comparison, correlation, and forecast simulation.
+- `saved_portfolios.dart`: saved portfolio history.
+- `how_it_works_screen.dart`: in-app explanation of the workflow and financial methodology.
+- `settings_screen.dart`: theme, password, and account management.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Backend
+
+The app communicates with a FastAPI backend in `lib/python/main.py`. The backend provides endpoints for:
+
+- `/optimize`
+- `/portfolio-stats`
+- `/backtest`
+- `/simulate`
+- `/correlation`
+- `/tickers`
+
+The deployed frontend currently points to the hosted API at:
+
+```text
+https://efficientfrontier.onrender.com
+```
+
+## Run Locally
+
+Install Flutter packages:
+
+```bash
+flutter pub get
+```
+
+Run the app:
+
+```bash
+flutter run
+```
+
+Run the backend:
+
+```bash
+cd lib/python
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+## Notes
+
+The app is intended for portfolio analysis and academic demonstration. It does not account for all real-world trading frictions, including taxes, transaction costs, liquidity limits, or future market regime changes.
