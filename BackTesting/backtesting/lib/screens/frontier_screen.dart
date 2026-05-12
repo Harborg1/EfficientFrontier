@@ -977,7 +977,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     color: isMaxSharpe
                         ? Colors.red
                         : isMaxSortino
-                            ? Colors.green
+                            ? Colors.purple
                             : Colors.blue,
                     size: 20,
                   ),
