@@ -29,7 +29,7 @@ class MyApp extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return MaterialApp(
-      title: 'Backtesting App',
+      title: 'Efficient Frontier',
       debugShowCheckedModeBanner: false,
       theme: lightMode, // Ensure these are imported from your theme.dart
       darkTheme: darkMode,
