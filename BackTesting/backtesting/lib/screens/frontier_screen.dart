@@ -76,6 +76,22 @@ class _FrontierScreenState extends State<FrontierScreen> {
     customWeights.removeWhere((key, value) => !selectedTickers.contains(key));
   }
 
+  List<double> get _availableWeightOptions {
+    if (selectedTickers.isEmpty) return _weightOptions;
+    if (selectedTickers.length == 1) return const [1.00];
+
+    final minimumUsefulWeight = 1.0 / selectedTickers.length;
+    return _weightOptions.where((weight) => weight > minimumUsefulWeight).toList();
+  }
+
+  void _ensureSelectedMaxWeightIsValid() {
+    final availableOptions = _availableWeightOptions;
+    if (availableOptions.isEmpty) return;
+    if (!availableOptions.contains(_selectedMaxWeight)) {
+      _selectedMaxWeight = availableOptions.first;
+    }
+  }
+
   // --- API LOGIC (Optimering) ---
   Future<void> calculateFrontier() async {
     if (selectedTickers.isEmpty) {
@@ -92,6 +108,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
 
     setState(() {
+      _ensureSelectedMaxWeightIsValid();
       isLoading = true;
       showSimulation = true;
     });
@@ -399,7 +416,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
       try {
         await batch.commit();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${typesToSave.length} portfolio(s) saved to Firestore!")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${typesToSave.length} portfolio(s) saved to history!")));
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Database error: $e")));
       }
@@ -642,6 +659,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           setState(() {
             selectedTickers.add(selection);
             _syncCustomWeights(); 
+            _ensureSelectedMaxWeightIsValid();
           });
           _tickerController.clear(); 
           _focusNode.requestFocus(); 
@@ -657,6 +675,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   setState(() {
                     selectedTickers.add(newTicker);
                     _syncCustomWeights(); 
+                    _ensureSelectedMaxWeightIsValid();
                     controller.clear();
                   });
                 }
@@ -675,6 +694,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       setState(() {
                         selectedTickers.add(newTicker);
                         _syncCustomWeights(); 
+                        _ensureSelectedMaxWeightIsValid();
                         controller.clear();
                       });
                     }
@@ -732,6 +752,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 onDeleted: () => setState(() {
                   selectedTickers.remove(ticker);
                   _syncCustomWeights(); 
+                  _ensureSelectedMaxWeightIsValid();
                 }),
               )),
               if (selectedTickers.isNotEmpty)
@@ -741,6 +762,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   onPressed: () => setState(() {
                     selectedTickers.clear();
                     _syncCustomWeights(); 
+                    _ensureSelectedMaxWeightIsValid();
                   }),
                 ),
             ],
@@ -751,6 +773,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   Widget _buildSettingsRow() {
+    final availableWeightOptions = _availableWeightOptions;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Row(
@@ -759,7 +783,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
             child: DropdownButtonFormField<double>(
               decoration: const InputDecoration(labelText: "Max Weight", border: OutlineInputBorder(), isDense: true),
               value: _selectedMaxWeight,
-              items: _weightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
+              items: availableWeightOptions.map((w) => DropdownMenuItem(value: w, child: Text("${(w * 100).toInt()}%"))).toList(),
               onChanged: (val) => setState(() => _selectedMaxWeight = val!),
             ),
           ),
@@ -788,7 +812,21 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   Widget _buildChartSection() {
     if (scatterSpots.isEmpty && !isLoading) return const Center(child: Text("No data"));
-    if (isLoading) return const Center(child: CircularProgressIndicator());
+    if (isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Simulation started. Results can take 90-120 seconds to appear.",
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 16),
+            CircularProgressIndicator(),
+          ],
+        ),
+      );
+    }
 
     double minXVal = scatterSpots.map((s) => s.x).reduce(min);
     double maxXVal = scatterSpots.map((s) => s.x).reduce(max);
@@ -963,8 +1001,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
               itemCount: docs.length,
               itemBuilder: (context, index) {
                 final data = docs[index].data() as Map<String, dynamic>;
-                final bool isMaxSharpe = data['type'] == 'Max Sharpe';
-                final bool isMaxSortino = data['type'] == 'Max Sortino';
+                final String portfolioType = data.containsKey('sortino')
+                    ? 'Max Sortino'
+                    : data['type'] ?? 'Portfolio';
+                final bool isMaxSharpe = portfolioType == 'Max Sharpe';
+                final bool isMaxSortino = portfolioType == 'Max Sortino';
 
                 return ListTile(
                   dense: true,
@@ -981,7 +1022,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                             : Colors.blue,
                     size: 20,
                   ),
-                  title: Text("${data['type']}: ${data['tickers'].join(', ')}"),
+                  title: Text("$portfolioType: ${data['tickers'].join(', ')}"),
                   subtitle: Text("Annual Return: ${(data['return'] * 100).toStringAsFixed(1)}%"),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, size: 18),
@@ -1001,7 +1042,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("${data['type']} Allocation"),
+        title: Text("${data.containsKey('sortino') ? 'Max Sortino' : data['type'] ?? 'Portfolio'} Allocation"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: (data['weights'] as Map<String, dynamic>).entries.map((e) => 

@@ -49,16 +49,25 @@ class SavedPortfoliosScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(8),
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
-                    final bool isMaxSharpe = data['type'] == 'Max Sharpe';
-                    // Oversættelse af type til visning
-                    final String typeVisning = isMaxSharpe ? 'Max Sharpe' : 'Min Risk';
-
+                    final String typeVisning = data.containsKey('sortino')
+                        ? 'Max Sortino'
+                        : data['type'] ?? 'Portfolio';
+                    final bool isMaxSharpe = typeVisning == 'Max Sharpe';
+                    final bool isMaxSortino = typeVisning == 'Max Sortino';
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
                         leading: Icon(
-                          isMaxSharpe ? Icons.trending_up : Icons.shield_outlined,
-                          color: isMaxSharpe ? Colors.red : Colors.blue,
+                          isMaxSharpe
+                              ? Icons.trending_up
+                              : isMaxSortino
+                                  ? Icons.trending_up_outlined
+                                  : Icons.shield_outlined,
+                          color: isMaxSharpe
+                              ? Colors.red
+                              : isMaxSortino
+                                  ? Colors.purple
+                                  : Colors.blue,
                         ),
                         title: Text("$typeVisning: ${data['tickers'].join(', ')}"),
                         subtitle: Text("Annual Return: ${(data['return'] * 100).toStringAsFixed(2)}%"),
@@ -97,7 +106,9 @@ class SavedPortfoliosScreen extends StatelessWidget {
   }
 
   void _showWeightsDialog(BuildContext context, Map<String, dynamic> data) {
-    final String typeVisning = data['type'] == 'Max Sharpe' ? 'Max Sharpe' : 'Min Risk';
+    final String typeVisning = data.containsKey('sortino')
+        ? 'Max Sortino'
+        : data['type'] ?? 'Portfolio';
 
     showDialog(
       context: context,
