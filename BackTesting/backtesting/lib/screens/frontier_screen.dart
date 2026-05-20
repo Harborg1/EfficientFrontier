@@ -108,10 +108,15 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
 
     setState(() {
-      _ensureSelectedMaxWeightIsValid();
-      isLoading = true;
-      showSimulation = true;
-    });
+        _ensureSelectedMaxWeightIsValid();
+        isLoading = true;
+        showSimulation = true;
+      
+        scatterSpots = [];
+        maxSharpe = null;
+        minVol = null;
+        maxSortino = null;
+      });
 
     final today = DateTime.now();
     final endDate = DateTime(today.year - 1, today.month, today.day); 
