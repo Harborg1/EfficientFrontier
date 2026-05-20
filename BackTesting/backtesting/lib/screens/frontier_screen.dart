@@ -27,11 +27,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE'];
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
-  String _selectedTimeframe = '5 år';
+  String _selectedTimeframe = '5 years';
   
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
-  final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];
+  final List<String> _timeframeOptions = ['1 year', '3 years', '5 years', '10 years'];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -117,10 +117,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
     final endDate = DateTime(today.year - 1, today.month, today.day); 
     DateTime startDate;
     switch (_selectedTimeframe) {
-      case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-      case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-      case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-      case '5 år':
+      case '1 year': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+      case '3 years': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+      case '10 years': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+      case '5 years':
       default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
     }
 
@@ -363,10 +363,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final endDate = DateTime(today.year - 1, today.month, today.day); 
       DateTime startDate;
       switch (_selectedTimeframe) {
-        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-        case '5 år':
+        case '1 year': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+        case '3 years': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+        case '10 years': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+        case '5 years':
         default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
       }
 
