@@ -81,8 +81,6 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-The deployed app currently calls the hosted API at `https://efficientfrontier.onrender.com`.
-
 ## Academic Focus
 
 This project demonstrates a practical implementation of modern portfolio theory. It connects financial theory, simulation, persistent user workflows, and empirical performance evaluation in one working system.
