@@ -247,9 +247,17 @@ async def backtest(data: BacktestRequest):
             raise HTTPException(status_code=400, detail="Could not retrieve market data for the test period")
 
         returns = df.pct_change().dropna()
+        missing_weights = [t for t in data.tickers if t not in data.weights]
+        if missing_weights:
+            raise HTTPException(status_code=400, detail=f"Saved portfolio is missing weights for: {', '.join(missing_weights)}")
+
         valid_tickers = [t for t in data.tickers if t in returns.columns]
-        
-        w_array = np.array([data.weights[t] for t in valid_tickers])
+        if not valid_tickers:
+            raise HTTPException(status_code=400, detail="No requested tickers had market data.")
+
+        w_array = np.array([data.weights[t] for t in valid_tickers], dtype=float)
+        if w_array.sum() == 0:
+            raise HTTPException(status_code=400, detail="Total weight of valid tickers is 0.")
         w_array /= w_array.sum()
         
         # --- ÆGTE BUY & HOLD MATEMATIK ---
@@ -257,6 +265,8 @@ async def backtest(data: BacktestRequest):
         port_cum_value = (cum_returns_assets * w_array).sum(axis=1)
         port_daily = (port_cum_value / port_cum_value.shift(1).fillna(1.0)) - 1.0
         
+        if benchmark_ticker not in returns.columns:
+            raise HTTPException(status_code=400, detail=f"Benchmark {benchmark_ticker} had no market data in the test period.")
         benchmark_daily = returns[benchmark_ticker]
 
         def calculate_kpis(daily_rets):
@@ -286,6 +296,8 @@ async def backtest(data: BacktestRequest):
             "benchmark_stats": calculate_kpis(benchmark_daily)
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,9 +318,17 @@ async def simulate_portfolio(data: SimulationRequest):
             raise HTTPException(status_code=400, detail="Kunne ikke hente historik til simulation")
 
         returns = df.pct_change().dropna()
+        missing_weights = [t for t in data.tickers if t not in data.weights]
+        if missing_weights:
+            raise HTTPException(status_code=400, detail=f"Saved portfolio is missing weights for: {', '.join(missing_weights)}")
+
         valid_tickers = [t for t in data.tickers if t in returns.columns]
-        
-        w_array = np.array([data.weights[t] for t in valid_tickers])
+        if not valid_tickers:
+            raise HTTPException(status_code=400, detail="No requested tickers had market data.")
+
+        w_array = np.array([data.weights[t] for t in valid_tickers], dtype=float)
+        if w_array.sum() == 0:
+            raise HTTPException(status_code=400, detail="Total weight of valid tickers is 0.")
         w_array /= w_array.sum()
         
         # Genskab porteføljens sande historik (Buy & Hold metoden)
@@ -355,6 +375,8 @@ async def simulate_portfolio(data: SimulationRequest):
             }
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -372,6 +394,10 @@ async def portfolio_correlation(data: CorrelationRequest):
             raise HTTPException(status_code=400, detail="Kunne ikke hente historik til korrelation")
 
         returns = df.pct_change().dropna()
+        missing_weights = [t for t in data.tickers if t not in data.weights]
+        if missing_weights:
+            raise HTTPException(status_code=400, detail=f"Saved portfolio is missing weights for: {', '.join(missing_weights)}")
+
         valid_tickers = [t for t in data.tickers if t in returns.columns]
 
         if len(valid_tickers) < 2:
@@ -384,6 +410,8 @@ async def portfolio_correlation(data: CorrelationRequest):
 
         corr_matrix = returns[valid_tickers].corr().fillna(0.0)
         w_array = np.array([data.weights[t] for t in valid_tickers], dtype=float)
+        if w_array.sum() == 0:
+            raise HTTPException(status_code=400, detail="Total weight of valid tickers is 0.")
         w_array /= w_array.sum()
 
         weighted_corr_sum = 0.0
@@ -404,6 +432,8 @@ async def portfolio_correlation(data: CorrelationRequest):
             "period_end": data.test_end_date,
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

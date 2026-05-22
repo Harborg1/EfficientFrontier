@@ -27,11 +27,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE'];
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
-  String _selectedTimeframe = '5 years';
+  String _selectedTimeframe = '5 år';
   
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
-  final List<String> _timeframeOptions = ['1 year', '3 years', '5 years', '10 years'];
+  final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -92,6 +92,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
   }
 
+  Map<String, double> _weightsFromOptimizedPortfolio(Map<String, dynamic> portfolio) {
+    final rawWeights = portfolio['weights'] as Map;
+    return rawWeights.map(
+      (ticker, weight) => MapEntry(ticker.toString(), (weight as num).toDouble()),
+    );
+  }
+
   // --- API LOGIC (Optimering) ---
   Future<void> calculateFrontier() async {
     if (selectedTickers.isEmpty) {
@@ -108,24 +115,19 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
 
     setState(() {
-        _ensureSelectedMaxWeightIsValid();
-        isLoading = true;
-        showSimulation = true;
-      
-        scatterSpots = [];
-        maxSharpe = null;
-        minVol = null;
-        maxSortino = null;
-      });
+      _ensureSelectedMaxWeightIsValid();
+      isLoading = true;
+      showSimulation = true;
+    });
 
     final today = DateTime.now();
     final endDate = DateTime(today.year - 1, today.month, today.day); 
     DateTime startDate;
     switch (_selectedTimeframe) {
-      case '1 year': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-      case '3 years': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-      case '10 years': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-      case '5 years':
+      case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+      case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+      case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+      case '5 år':
       default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
     }
 
@@ -368,10 +370,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final endDate = DateTime(today.year - 1, today.month, today.day); 
       DateTime startDate;
       switch (_selectedTimeframe) {
-        case '1 year': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-        case '3 years': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-        case '10 years': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-        case '5 years':
+        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+        case '5 år':
         default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
       }
 
@@ -379,13 +381,14 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
 
       if (typesToSave.contains('Max Sharpe')) {
+        final weights = _weightsFromOptimizedPortfolio(maxSharpe!);
         batch.set(userPortfoliosRef.doc(), {
           'type': 'Max Sharpe',
-          'tickers': List.from(selectedTickers),
+          'tickers': weights.keys.toList(),
           'return': maxSharpe!['y'],
           'volatility': maxSharpe!['x'],
           'sharpe': maxSharpe!['sharpe'],
-          'weights': maxSharpe!['weights'],
+          'weights': weights,
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
@@ -393,12 +396,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
       }
 
       if (typesToSave.contains('Min Risk')) {
+        final weights = _weightsFromOptimizedPortfolio(minVol!);
         batch.set(userPortfoliosRef.doc(), {
           'type': 'Min Risk',
-          'tickers': List.from(selectedTickers),
+          'tickers': weights.keys.toList(),
           'return': minVol!['y'],
           'volatility': minVol!['x'],
-          'weights': minVol!['weights'],
+          'weights': weights,
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
@@ -406,13 +410,14 @@ class _FrontierScreenState extends State<FrontierScreen> {
       }
 
       if (typesToSave.contains('Max Sortino')) {
+        final weights = _weightsFromOptimizedPortfolio(maxSortino!);
         batch.set(userPortfoliosRef.doc(), {
           'type': 'Max Sortino',
-          'tickers': List.from(selectedTickers),
+          'tickers': weights.keys.toList(),
           'return': maxSortino!['y'],
           'volatility': maxSortino!['x'],
           'sortino': maxSortino!['sortino'],
-          'weights': maxSortino!['weights'],
+          'weights': weights,
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
