@@ -9,7 +9,7 @@ class HowItWorksScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("How the app works"),
+        title: const Text(""),
       ),
       body: SafeArea(
         child: SingleChildScrollView(

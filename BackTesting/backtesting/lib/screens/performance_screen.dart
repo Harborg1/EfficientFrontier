@@ -402,7 +402,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text("Performance"),
+          title: const Text(""),
           bottom: const TabBar(
             tabs: [
               Tab(text: "Out-of-Sample Test", icon: Icon(Icons.history)),

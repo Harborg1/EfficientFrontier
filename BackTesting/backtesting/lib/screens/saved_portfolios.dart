@@ -49,11 +49,9 @@ class SavedPortfoliosScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(8),
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
-                    final String typeVisning = data.containsKey('sortino')
-                        ? 'Max Sortino'
-                        : data['type'] ?? 'Portfolio';
-                    final bool isMaxSharpe = typeVisning == 'Max Sharpe';
-                    final bool isMaxSortino = typeVisning == 'Max Sortino';
+                    final String typeVisning = _portfolioType(data);
+                    final bool isMaxSharpe = typeVisning.contains('Sharpe');
+                    final bool isMaxSortino = typeVisning.contains('Sortino');
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
@@ -70,7 +68,7 @@ class SavedPortfoliosScreen extends StatelessWidget {
                                   : Colors.blue,
                         ),
                         title: Text("$typeVisning: ${data['tickers'].join(', ')}"),
-                        subtitle: Text("Annual Return: ${(data['return'] * 100).toStringAsFixed(2)}%"),
+                        subtitle: Text(_portfolioSubtitle(data)),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
                           onPressed: () => _confirmDelete(context, docs[index].reference),
@@ -83,6 +81,26 @@ class SavedPortfoliosScreen extends StatelessWidget {
               },
             ),
     );
+  }
+
+  String _portfolioType(Map<String, dynamic> data) {
+    return data['type']?.toString() ??
+        (data.containsKey('sortino') ? 'Max Sortino' : 'Portfolio');
+  }
+
+  String _portfolioSubtitle(Map<String, dynamic> data) {
+    final annualReturn = data['return'];
+    final returnText = annualReturn is num
+        ? "Annual Return: ${(annualReturn.toDouble() * 100).toStringAsFixed(2)}%"
+        : "Annual Return: N/A";
+
+    final interval = data['rebalance_interval_months'];
+    if (interval is num && interval > 0) {
+      final label = data['rebalance_label']?.toString() ?? "Every $interval months";
+      return "$returnText | Rebalance: $label";
+    }
+
+    return returnText;
   }
 
   void _confirmDelete(BuildContext context, DocumentReference ref) {
@@ -106,29 +124,72 @@ class SavedPortfoliosScreen extends StatelessWidget {
   }
 
   void _showWeightsDialog(BuildContext context, Map<String, dynamic> data) {
-    final String typeVisning = data.containsKey('sortino')
-        ? 'Max Sortino'
-        : data['type'] ?? 'Portfolio';
+    final String typeVisning = _portfolioType(data);
+    final weights = Map<String, dynamic>.from(data['weights'] as Map);
+    final rawRuns = data['rebalance_runs'];
+    final rebalanceHistory = rawRuns is Iterable
+        ? rawRuns.map((run) => Map<String, dynamic>.from(run as Map)).toList()
+        : <Map<String, dynamic>>[];
+
+    String pct(dynamic value) {
+      if (value is! num) return "N/A";
+      return "${(value.toDouble() * 100).toStringAsFixed(1)}%";
+    }
+
+    List<Widget> allocationRows(Map<String, dynamic> rowWeights) {
+      final entries = rowWeights.entries.toList()
+        ..sort((a, b) => (b.value as num).compareTo(a.value as num));
+
+      return entries.map((e) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text("${((e.value as num).toDouble() * 100).toStringAsFixed(1)}%"),
+            ],
+          ),
+        );
+      }).toList();
+    }
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text("Distribution: $typeVisning"),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: (data['weights'] as Map<String, dynamic>).entries.map((e) => 
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text("${(e.value * 100).toStringAsFixed(1)}%"),
-                  ],
-                ),
-              )
-            ).toList(),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...allocationRows(weights),
+                if (rebalanceHistory.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  ...rebalanceHistory.map((run) {
+                    final runWeights = run['weights'] is Map
+                        ? Map<String, dynamic>.from(run['weights'] as Map)
+                        : <String, dynamic>{};
+
+                    return ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 8),
+                      title: Text(
+                        "Run ${run['number']}: ${run['rebalanced'] == true ? 'Rebalanced' : 'Kept'}",
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        "Train ${run['training_start_date']} - ${run['training_end_date']}\n"
+                        "Apply ${run['start_date']} - ${run['end_date']} | Return ${pct(run['return'])}",
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      children: allocationRows(runWeights),
+                    );
+                  }),
+                ],
+              ],
+            ),
           ),
         ),
         actions: [

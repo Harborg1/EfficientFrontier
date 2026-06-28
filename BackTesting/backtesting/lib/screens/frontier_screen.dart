@@ -27,16 +27,29 @@ class _FrontierScreenState extends State<FrontierScreen> {
   List<String> selectedTickers = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE'];
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
-  String _selectedTimeframe = '5 år';
+  String _selectedTimeframe = '5 YR';
   
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
-  final List<String> _timeframeOptions = ['1 år', '3 år', '5 år', '10 år'];
+  final List<_RebalanceChoice> _rebalanceChoices = const [
+    _RebalanceChoice(code: 'skip', label: 'Skip (never)', months: null),
+    _RebalanceChoice(code: '3mo', label: 'Every 3 months', months: 3),
+    _RebalanceChoice(code: '6mo', label: 'Every 6 months', months: 6),
+    _RebalanceChoice(code: '1y', label: 'Every 1 year', months: 12),
+    _RebalanceChoice(code: 'custom', label: 'Custom period', months: null),
+  ];
+
+  String _selectedRebalanceCode = 'skip';
+  int _customRebalanceMonths = 9;
+  final List<String> _timeframeOptions = ['1 YR', '3 YR', '5 YR', '10 YR'];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
   Map<String, dynamic>? maxSortino;
+  List<Map<String, dynamic>> rebalanceRuns = [];
+  Map<String, dynamic>? rebalanceSummary;
+  String? rebalanceError;
 
   bool isLoading = false;
   bool showSimulation = false;
@@ -99,6 +112,371 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
+  String _formatDate(DateTime date) {
+    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  }
+
+  int _daysInMonth(int year, int month) {
+    return DateTime(year, month + 1, 0).day;
+  }
+
+  DateTime _addMonths(DateTime date, int months) {
+    final monthIndex = date.month - 1 + months;
+    final year = date.year + (monthIndex ~/ 12);
+    final month = (monthIndex % 12) + 1;
+    final day = min(date.day, _daysInMonth(year, month));
+    return DateTime(year, month, day);
+  }
+
+  DateTime _trainingStartFor(DateTime endDate, String timeframe) {
+    switch (timeframe) {
+      case '1 YR':
+        return DateTime(endDate.year - 1, endDate.month, endDate.day);
+      case '3 YR':
+        return DateTime(endDate.year - 3, endDate.month, endDate.day);
+      case '10 YR':
+        return DateTime(endDate.year - 10, endDate.month, endDate.day);
+      case '5 YR':
+      default:
+        return DateTime(endDate.year - 5, endDate.month, endDate.day);
+    }
+  }
+
+  int _lookbackYearsForTimeframe(String timeframe) {
+    if (timeframe.startsWith('1')) return 1;
+    if (timeframe.startsWith('3')) return 3;
+    if (timeframe.startsWith('10')) return 10;
+    return 5;
+  }
+
+  int? get _selectedRebalanceMonths {
+    if (_selectedRebalanceCode == 'custom') {
+      return _customRebalanceMonths > 0 ? _customRebalanceMonths : null;
+    }
+
+    final choice = _rebalanceChoices.firstWhere(
+      (option) => option.code == _selectedRebalanceCode,
+      orElse: () => _rebalanceChoices.first,
+    );
+    return choice.months;
+  }
+
+  String get _selectedRebalanceLabel {
+    if (_selectedRebalanceCode == 'custom') {
+      return "Every $_customRebalanceMonths months";
+    }
+
+    final choice = _rebalanceChoices.firstWhere(
+      (option) => option.code == _selectedRebalanceCode,
+      orElse: () => _rebalanceChoices.first,
+    );
+    return choice.label;
+  }
+
+  Future<Map<String, dynamic>> _requestOptimization({
+    required List<String> tickers,
+    required double maxWeight,
+    required DateTime startDate,
+    required DateTime endDate,
+    required int numPortfolios,
+  }) async {
+    final url = Uri.parse(
+      'https://efficientfrontier.onrender.com/optimize'
+      '?tickers=${tickers.join(',')}'
+      '&max_weight=$maxWeight'
+      '&start_date=${_formatDate(startDate)}'
+      '&end_date=${_formatDate(endDate)}'
+      '&num_portfolios=$numPortfolios'
+      '&t=${DateTime.now().millisecondsSinceEpoch}'
+    );
+
+    final response = await http.get(url).timeout(const Duration(seconds: 2000));
+    if (response.statusCode != 200) {
+      throw Exception(
+        response.body.isNotEmpty
+            ? response.body
+            : "Optimization failed with status ${response.statusCode}.",
+      );
+    }
+
+    final decoded = json.decode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException("Optimization returned an unexpected response.");
+    }
+    if (decoded['error'] != null) {
+      throw Exception(decoded['error']);
+    }
+
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _requestRollingBacktest({
+    required List<String> tickers,
+    required double maxWeight,
+    required DateTime backtestStartDate,
+    required DateTime backtestEndDate,
+    required int lookbackYears,
+    required int rebalanceMonths,
+    required int numPortfolios,
+  }) async {
+    final response = await http.post(
+      Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        "tickers": tickers,
+        "max_weight": maxWeight,
+        "backtest_start_date": _formatDate(backtestStartDate),
+        "backtest_end_date": _formatDate(backtestEndDate),
+        "lookback_years": lookbackYears,
+        "rebalance_months": rebalanceMonths,
+        "num_portfolios": numPortfolios,
+      }),
+    ).timeout(const Duration(seconds: 2000));
+
+    final decoded = json.decode(response.body);
+    if (response.statusCode != 200) {
+      if (decoded is Map<String, dynamic> && decoded['detail'] != null) {
+        throw Exception(decoded['detail']);
+      }
+      throw Exception(
+        response.body.isNotEmpty
+            ? response.body
+            : "Rolling backtest failed with status ${response.statusCode}.",
+      );
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException("Rolling backtest returned an unexpected response.");
+    }
+
+    return decoded;
+  }
+
+  Future<Map<String, double>> _requestPortfolioStats({
+    required List<String> tickers,
+    required Map<String, double> weights,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final response = await http.post(
+      Uri.parse('https://efficientfrontier.onrender.com/portfolio-stats'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        "tickers": tickers,
+        "weights": weights,
+        "start_date": _formatDate(startDate),
+        "end_date": _formatDate(endDate),
+      }),
+    ).timeout(const Duration(seconds: 30));
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        response.body.isNotEmpty
+            ? response.body
+            : "Portfolio stats failed with status ${response.statusCode}.",
+      );
+    }
+
+    final decoded = json.decode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException("Portfolio stats returned an unexpected response.");
+    }
+
+    final annualReturn =
+        (decoded['annualized_return_pct'] as num).toDouble() / 100;
+    final annualVolatility =
+        (decoded['annualized_volatility_pct'] as num).toDouble() / 100;
+    final sortino = (decoded['sortino_ratio'] as num?)?.toDouble() ?? 0.0;
+
+    return {
+      'return': annualReturn,
+      'volatility': annualVolatility,
+      'sortino': sortino,
+      'sharpe': annualVolatility == 0 ? 0.0 : annualReturn / annualVolatility,
+    };
+  }
+
+  double _scoreForObjective(
+    String portfolioKey,
+    Map<String, dynamic>? optimizedPortfolio,
+    Map<String, double>? stats,
+  ) {
+    if (optimizedPortfolio != null) {
+      final annualReturn = (optimizedPortfolio['y'] as num?)?.toDouble() ?? 0.0;
+      final annualVolatility = (optimizedPortfolio['x'] as num?)?.toDouble() ?? 0.0;
+
+      switch (portfolioKey) {
+        case 'min_vol':
+          return -annualVolatility;
+        case 'max_sortino':
+          return (optimizedPortfolio['sortino'] as num?)?.toDouble() ?? 0.0;
+        case 'max_sharpe':
+        default:
+          return (optimizedPortfolio['sharpe'] as num?)?.toDouble() ??
+              (annualVolatility == 0 ? 0.0 : annualReturn / annualVolatility);
+      }
+    }
+
+    if (stats == null) return double.negativeInfinity;
+    switch (portfolioKey) {
+      case 'min_vol':
+        return -(stats['volatility'] ?? double.infinity);
+      case 'max_sortino':
+        return stats['sortino'] ?? 0.0;
+      case 'max_sharpe':
+      default:
+        return stats['sharpe'] ?? 0.0;
+    }
+  }
+
+  Future<Map<String, dynamic>> _walkForwardPortfolioForObjective({
+    required String portfolioKey,
+    required Map<String, dynamic> optimizedPortfolio,
+    required Map<String, double>? currentWeights,
+    required DateTime trainingStart,
+    required DateTime rebalanceDate,
+    required DateTime applicationEnd,
+  }) async {
+    final candidateWeights = _weightsFromOptimizedPortfolio(optimizedPortfolio);
+    final currentTrainingStats = currentWeights == null
+        ? null
+        : await _requestPortfolioStats(
+            tickers: selectedTickers,
+            weights: currentWeights,
+            startDate: trainingStart,
+            endDate: rebalanceDate,
+          );
+
+    final candidateScore = _scoreForObjective(
+      portfolioKey,
+      optimizedPortfolio,
+      null,
+    );
+    final currentScore = _scoreForObjective(
+      portfolioKey,
+      null,
+      currentTrainingStats,
+    );
+    final shouldRebalance =
+        currentWeights == null || candidateScore > currentScore + 0.0001;
+    final selectedWeights = shouldRebalance ? candidateWeights : currentWeights!;
+
+    final applicationStats = await _requestPortfolioStats(
+      tickers: selectedTickers,
+      weights: selectedWeights,
+      startDate: rebalanceDate,
+      endDate: applicationEnd,
+    );
+
+    return {
+      'x': applicationStats['volatility'],
+      'y': applicationStats['return'],
+      'sortino': applicationStats['sortino'],
+      'sharpe': applicationStats['sharpe'],
+      'weights': selectedWeights,
+      'rebalanced': shouldRebalance,
+      'candidate_score': candidateScore,
+      'previous_score': currentWeights == null ? null : currentScore,
+      'training_return': optimizedPortfolio['y'],
+      'training_volatility': optimizedPortfolio['x'],
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _calculateRollingRebalances(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    final intervalMonths = _selectedRebalanceMonths;
+    if (intervalMonths == null) return [];
+
+    final runs = <Map<String, dynamic>>[];
+    final currentWeightsByObjective = <String, Map<String, double>?>{
+      'max_sharpe': null,
+      'min_vol': null,
+      'max_sortino': null,
+    };
+    var trainingStart = startDate;
+    var rebalanceDate = _addMonths(trainingStart, intervalMonths);
+    var windowNumber = 1;
+
+    while (rebalanceDate.isBefore(endDate)) {
+      final rawApplicationEnd = _addMonths(rebalanceDate, intervalMonths);
+      final applicationEnd =
+          rawApplicationEnd.isAfter(endDate) ? endDate : rawApplicationEnd;
+
+      if (rebalanceDate.difference(trainingStart).inDays < 30 ||
+          applicationEnd.difference(rebalanceDate).inDays < 30) {
+        break;
+      }
+
+      final data = await _requestOptimization(
+        tickers: selectedTickers,
+        maxWeight: _selectedMaxWeight,
+        startDate: trainingStart,
+        endDate: rebalanceDate,
+        numPortfolios: _selectedPortfolios,
+      );
+
+      final maxSharpeRun = await _walkForwardPortfolioForObjective(
+        portfolioKey: 'max_sharpe',
+        optimizedPortfolio: Map<String, dynamic>.from(data['max_sharpe'] as Map),
+        currentWeights: currentWeightsByObjective['max_sharpe'],
+        trainingStart: trainingStart,
+        rebalanceDate: rebalanceDate,
+        applicationEnd: applicationEnd,
+      );
+      final minVolRun = await _walkForwardPortfolioForObjective(
+        portfolioKey: 'min_vol',
+        optimizedPortfolio: Map<String, dynamic>.from(data['min_vol'] as Map),
+        currentWeights: currentWeightsByObjective['min_vol'],
+        trainingStart: trainingStart,
+        rebalanceDate: rebalanceDate,
+        applicationEnd: applicationEnd,
+      );
+      final maxSortinoRun = await _walkForwardPortfolioForObjective(
+        portfolioKey: 'max_sortino',
+        optimizedPortfolio:
+            Map<String, dynamic>.from(data['max_sortino'] as Map),
+        currentWeights: currentWeightsByObjective['max_sortino'],
+        trainingStart: trainingStart,
+        rebalanceDate: rebalanceDate,
+        applicationEnd: applicationEnd,
+      );
+
+      if (maxSharpeRun['rebalanced'] == true) {
+        currentWeightsByObjective['max_sharpe'] =
+            Map<String, double>.from(maxSharpeRun['weights'] as Map);
+      }
+      if (minVolRun['rebalanced'] == true) {
+        currentWeightsByObjective['min_vol'] =
+            Map<String, double>.from(minVolRun['weights'] as Map);
+      }
+      if (maxSortinoRun['rebalanced'] == true) {
+        currentWeightsByObjective['max_sortino'] =
+            Map<String, double>.from(maxSortinoRun['weights'] as Map);
+      }
+
+      runs.add({
+        'number': windowNumber,
+        'training_start_date': _formatDate(trainingStart),
+        'training_end_date': _formatDate(rebalanceDate),
+        'rebalance_date': _formatDate(rebalanceDate),
+        'start_date': _formatDate(rebalanceDate),
+        'end_date': _formatDate(applicationEnd),
+        'max_sharpe': maxSharpeRun,
+        'min_vol': minVolRun,
+        'max_sortino': maxSortinoRun,
+      });
+
+      if (!applicationEnd.isAfter(rebalanceDate)) break;
+      trainingStart = rebalanceDate;
+      rebalanceDate = applicationEnd;
+      windowNumber += 1;
+    }
+
+    return runs;
+  }
+
   // --- API LOGIC (Optimering) ---
   Future<void> calculateFrontier() async {
     if (selectedTickers.isEmpty) {
@@ -118,37 +496,61 @@ class _FrontierScreenState extends State<FrontierScreen> {
       _ensureSelectedMaxWeightIsValid();
       isLoading = true;
       showSimulation = true;
+      rebalanceRuns = [];
+      rebalanceSummary = null;
+      rebalanceError = null;
     });
 
     final today = DateTime.now();
     final endDate = DateTime(today.year - 1, today.month, today.day); 
     DateTime startDate;
     switch (_selectedTimeframe) {
-      case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-      case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-      case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-      case '5 år':
+      case '1 YR': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+      case '3 YR': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+      case '10 YR': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+      case '5 YR':
       default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
     }
 
-    final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
-    final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
-    final tickerString = selectedTickers.join(',');
-    
-    final url = Uri.parse(
-      'https://efficientfrontier.onrender.com/optimize'
-      '?tickers=$tickerString'
-      '&max_weight=$_selectedMaxWeight'
-      '&start_date=$startStr'
-      '&end_date=$endStr'
-      '&num_portfolios=$_selectedPortfolios'
-      '&t=${DateTime.now().millisecondsSinceEpoch}'
-    );
-    
+    final lookbackYears = _lookbackYearsForTimeframe(_selectedTimeframe);
+    startDate = DateTime(endDate.year - lookbackYears, endDate.month, endDate.day);
+
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 120));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      final data = await _requestOptimization(
+        tickers: selectedTickers,
+        maxWeight: _selectedMaxWeight,
+        startDate: startDate,
+        endDate: endDate,
+        numPortfolios: _selectedPortfolios,
+      );
+      List<Map<String, dynamic>> rollingRuns = [];
+      Map<String, dynamic>? rollingSummary;
+      String? rollingError;
+
+      if (_selectedRebalanceMonths != null) {
+        try {
+          final rollingData = await _requestRollingBacktest(
+            tickers: selectedTickers,
+            maxWeight: _selectedMaxWeight,
+            backtestStartDate: startDate,
+            backtestEndDate: endDate,
+            lookbackYears: lookbackYears,
+            rebalanceMonths: _selectedRebalanceMonths!,
+            numPortfolios: _selectedPortfolios,
+          );
+          rollingRuns = (rollingData['runs'] as List)
+              .map((run) => Map<String, dynamic>.from(run as Map))
+              .toList();
+          rollingSummary = rollingData['summary'] is Map
+              ? Map<String, dynamic>.from(rollingData['summary'] as Map)
+              : null;
+        } catch (e) {
+          rollingError = e
+              .toString()
+              .replaceFirst("Exception: ", "")
+              .replaceFirst("FormatException: ", "");
+        }
+      }
         
         List<ScatterSpot> rawSpots = (data['scatter_points'] as List).map((p) {
           return ScatterSpot((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
@@ -163,9 +565,17 @@ class _FrontierScreenState extends State<FrontierScreen> {
           maxSharpe = data['max_sharpe'];
           minVol = data['min_vol'];
           maxSortino = data['max_sortino'];
+          rebalanceRuns = rollingRuns;
+          rebalanceSummary = rollingSummary;
+          rebalanceError = rollingError;
           isLoading = false;
         });
-      }
+
+        if (rollingError != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Rebalance error: $rollingError")),
+          );
+        }
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -289,6 +699,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
     }
 
     final selectedTypes = <String>{'Max Sharpe', 'Min Risk', 'Max Sortino'};
+    if (rebalanceRuns.isNotEmpty) {
+      selectedTypes.addAll({
+        'Rebalanced Max Sharpe',
+        'Rebalanced Min Risk',
+        'Rebalanced Max Sortino',
+      });
+    }
 
     final typesToSave = await showDialog<Set<String>>(
       context: context,
@@ -307,28 +724,51 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
             return AlertDialog(
               title: const Text("Save portfolios"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CheckboxListTile(
-                    value: selectedTypes.contains('Max Sharpe'),
-                    onChanged: (value) => toggleType('Max Sharpe', value),
-                    title: const Text("Max Sharpe"),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                  CheckboxListTile(
-                    value: selectedTypes.contains('Min Risk'),
-                    onChanged: (value) => toggleType('Min Risk', value),
-                    title: const Text("Min Volatility"),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                  CheckboxListTile(
-                    value: selectedTypes.contains('Max Sortino'),
-                    onChanged: (value) => toggleType('Max Sortino', value),
-                    title: const Text("Max Sortino"),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                ],
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CheckboxListTile(
+                      value: selectedTypes.contains('Max Sharpe'),
+                      onChanged: (value) => toggleType('Max Sharpe', value),
+                      title: const Text("Max Sharpe"),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    CheckboxListTile(
+                      value: selectedTypes.contains('Min Risk'),
+                      onChanged: (value) => toggleType('Min Risk', value),
+                      title: const Text("Min Volatility"),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    CheckboxListTile(
+                      value: selectedTypes.contains('Max Sortino'),
+                      onChanged: (value) => toggleType('Max Sortino', value),
+                      title: const Text("Max Sortino"),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    if (rebalanceRuns.isNotEmpty) ...[
+                      const Divider(),
+                      CheckboxListTile(
+                        value: selectedTypes.contains('Rebalanced Max Sharpe'),
+                        onChanged: (value) => toggleType('Rebalanced Max Sharpe', value),
+                        title: const Text("SHA' Rebalanced Max Sharpe"),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        value: selectedTypes.contains('Rebalanced Min Risk'),
+                        onChanged: (value) => toggleType('Rebalanced Min Risk', value),
+                        title: const Text("VAR' Rebalanced Min Volatility"),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        value: selectedTypes.contains('Rebalanced Max Sortino'),
+                        onChanged: (value) => toggleType('Rebalanced Max Sortino', value),
+                        title: const Text("SOR' Rebalanced Max Sortino"),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                    ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -370,15 +810,49 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final endDate = DateTime(today.year - 1, today.month, today.day); 
       DateTime startDate;
       switch (_selectedTimeframe) {
-        case '1 år': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
-        case '3 år': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
-        case '10 år': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
-        case '5 år':
+        case '1 YR': startDate = DateTime(endDate.year - 1, endDate.month, endDate.day); break;
+        case '3 YR': startDate = DateTime(endDate.year - 3, endDate.month, endDate.day); break;
+        case '10 YR': startDate = DateTime(endDate.year - 10, endDate.month, endDate.day); break;
+        case '5 YR':
         default: startDate = DateTime(endDate.year - 5, endDate.month, endDate.day); break;
       }
 
+      final lookbackYears = _lookbackYearsForTimeframe(_selectedTimeframe);
+      startDate = DateTime(endDate.year - lookbackYears, endDate.month, endDate.day);
+
       final startStr = "${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}";
       final endStr = "${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}";
+      final baseOptimizationFields = {
+        'optimization_max_weight': _selectedMaxWeight,
+        'optimization_portfolios': _selectedPortfolios,
+        'optimization_timeframe': _selectedTimeframe,
+        'optimization_lookback_years': lookbackYears,
+      };
+      final rebalanceSimulationFields = {
+        ...baseOptimizationFields,
+        'rebalance_interval_months': _selectedRebalanceMonths,
+        'rebalance_label': _selectedRebalanceLabel,
+      };
+
+      void queueRebalancedPortfolio({
+        required String selectedType,
+        required String savedType,
+        required String portfolioKey,
+      }) {
+        if (!typesToSave.contains(selectedType)) return;
+
+        final data = _rebalancedPortfolioForSave(portfolioKey);
+        if (data == null) return;
+
+        batch.set(userPortfoliosRef.doc(), {
+          'type': savedType,
+          ...data,
+          'train_start_date': startStr,
+          'train_end_date': endStr,
+          'timestamp': FieldValue.serverTimestamp(),
+          ...rebalanceSimulationFields,
+        });
+      }
 
       if (typesToSave.contains('Max Sharpe')) {
         final weights = _weightsFromOptimizedPortfolio(maxSharpe!);
@@ -392,6 +866,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
+          ...baseOptimizationFields,
         });
       }
 
@@ -406,6 +881,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
+          ...baseOptimizationFields,
         });
       }
 
@@ -421,8 +897,25 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'train_start_date': startStr, 
           'train_end_date': endStr,     
           'timestamp': FieldValue.serverTimestamp(),
+          ...baseOptimizationFields,
         });
       }
+
+      queueRebalancedPortfolio(
+        selectedType: 'Rebalanced Max Sharpe',
+        savedType: 'Rebalanced Max Sharpe',
+        portfolioKey: 'max_sharpe',
+      );
+      queueRebalancedPortfolio(
+        selectedType: 'Rebalanced Min Risk',
+        savedType: 'Rebalanced Min Volatility',
+        portfolioKey: 'min_vol',
+      );
+      queueRebalancedPortfolio(
+        selectedType: 'Rebalanced Max Sortino',
+        savedType: 'Rebalanced Max Sortino',
+        portfolioKey: 'max_sortino',
+      );
 
       try {
         await batch.commit();
@@ -439,7 +932,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Portfolio Optimization"),
+        title: const Text(""),
         leading: IconButton(
           icon: Icon(showSimulation ? Icons.close : Icons.arrow_back),
           onPressed: () {
@@ -477,6 +970,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 const SizedBox(height: 15),
                 _buildSettingsRow(),
                 const SizedBox(height: 10),
+                _buildRebalanceSettings(isWide),
+                const SizedBox(height: 10),
                 _buildCustomPortfolioSection(), 
                 const SizedBox(height: 20),
                 _buildSavedPortfoliosSection(), 
@@ -500,6 +995,67 @@ class _FrontierScreenState extends State<FrontierScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildRebalanceSettings(bool isWide) {
+    final dropdown = DropdownButtonFormField<String>(
+      decoration: const InputDecoration(
+        labelText: "Rebalance Check",
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      value: _selectedRebalanceCode,
+      items: _rebalanceChoices.map((choice) {
+        return DropdownMenuItem(
+          value: choice.code,
+          child: Text(choice.label),
+        );
+      }).toList(),
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _selectedRebalanceCode = value);
+      },
+    );
+
+    final customInput = TextFormField(
+      key: ValueKey(_customRebalanceMonths),
+      initialValue: _customRebalanceMonths.toString(),
+      keyboardType: TextInputType.number,
+      decoration: const InputDecoration(
+        labelText: "Custom Months",
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      onChanged: (value) {
+        final months = int.tryParse(value);
+        if (months != null && months > 0) {
+          _customRebalanceMonths = months;
+        }
+      },
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: isWide
+          ? Row(
+              children: [
+                Expanded(child: dropdown),
+                if (_selectedRebalanceCode == 'custom') ...[
+                  const SizedBox(width: 8),
+                  Expanded(child: customInput),
+                ],
+              ],
+            )
+          : Column(
+              children: [
+                dropdown,
+                if (_selectedRebalanceCode == 'custom') ...[
+                  const SizedBox(height: 8),
+                  customInput,
+                ],
+              ],
+            ),
     );
   }
 
@@ -629,9 +1185,18 @@ class _FrontierScreenState extends State<FrontierScreen> {
             ),
           ),
         ),
+        if (!isLoading && rebalanceError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              "Rolling rebalance failed: $rebalanceError",
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+            ),
+          ),
         if (!isLoading)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -650,6 +1215,165 @@ class _FrontierScreenState extends State<FrontierScreen> {
           ),
       ],
     );
+  }
+
+  List<Map<String, dynamic>> _rebalanceRunsForObjective(String portfolioKey) {
+    return rebalanceRuns.map((run) {
+      final portfolio = Map<String, dynamic>.from(run[portfolioKey] as Map);
+      final runData = <String, dynamic>{
+        'number': run['number'],
+        'training_start_date': run['training_start_date'],
+        'training_end_date': run['training_end_date'],
+        'rebalance_date': run['rebalance_date'],
+        'start_date': run['start_date'],
+        'end_date': run['end_date'],
+        'return': portfolio['period_return'] ?? portfolio['total_return'] ?? portfolio['y'],
+        'volatility': portfolio['x'],
+        'weights': _weightsFromOptimizedPortfolio(portfolio),
+        'rebalanced': portfolio['rebalanced'] == true,
+        'candidate_score': portfolio['candidate_score'],
+        'previous_score': portfolio['previous_score'],
+      };
+
+      if (portfolio['sharpe'] != null) {
+        runData['sharpe'] = portfolio['sharpe'];
+      }
+      if (portfolio['sortino'] != null) {
+        runData['sortino'] = portfolio['sortino'];
+      }
+      if (portfolio['cagr'] != null) {
+        runData['cagr'] = portfolio['cagr'];
+      }
+      if (portfolio['total_return'] != null) {
+        runData['total_return'] = portfolio['total_return'];
+      }
+
+      return runData;
+    }).toList();
+  }
+
+  Map<String, dynamic>? _rebalancedPortfolioForSave(String portfolioKey) {
+    if (rebalanceRuns.isEmpty) return null;
+
+    final runs = _rebalanceRunsForObjective(portfolioKey);
+    final rawSummary = rebalanceSummary == null ? null : rebalanceSummary![portfolioKey];
+    final summary = rawSummary is Map
+        ? Map<String, dynamic>.from(rawSummary)
+        : Map<String, dynamic>.from(rebalanceRuns.last[portfolioKey] as Map);
+    final latestWeights = _weightsFromOptimizedPortfolio(summary);
+
+    final data = <String, dynamic>{
+      'tickers': latestWeights.keys.toList(),
+      'weights': latestWeights,
+      'return': summary['return'] ?? summary['y'],
+      'volatility': summary['volatility'] ?? summary['x'],
+      'rebalance_runs': runs,
+      'rebalance_strategy': true,
+    };
+
+    if (summary['sharpe'] != null) {
+      data['sharpe'] = summary['sharpe'];
+    }
+    if (summary['sortino'] != null) {
+      data['sortino'] = summary['sortino'];
+    }
+    if (summary['cagr'] != null) {
+      data['cagr'] = summary['cagr'];
+    }
+    if (summary['total_return'] != null) {
+      data['total_return'] = summary['total_return'];
+    }
+    if (summary['annualized_return'] != null) {
+      data['annualized_return'] = summary['annualized_return'];
+    }
+    if (summary['max_drawdown'] != null) {
+      data['max_drawdown'] = summary['max_drawdown'];
+    }
+
+    return data;
+  }
+
+  _ChartMarker _markerFromPortfolio({
+    required Map<String, dynamic> portfolio,
+    required String label,
+    required Color color,
+    required bool isOriginal,
+  }) {
+    return _ChartMarker(
+      x: (portfolio['x'] as num).toDouble(),
+      y: (portfolio['y'] as num).toDouble(),
+      label: label,
+      color: color,
+      isOriginal: isOriginal,
+    );
+  }
+
+  _ChartMarker? _aggregateRebalanceMarker({
+    required String portfolioKey,
+    required String label,
+    required Color color,
+  }) {
+    final rawSummary = rebalanceSummary == null ? null : rebalanceSummary![portfolioKey];
+    if (rawSummary is! Map) return null;
+    final summary = Map<String, dynamic>.from(rawSummary);
+
+    return _ChartMarker(
+      x: (summary['x'] as num).toDouble(),
+      y: (summary['y'] as num).toDouble(),
+      label: label,
+      color: color,
+      isOriginal: false,
+    );
+  }
+
+  List<_ChartMarker> _chartMarkers() {
+    final markers = <_ChartMarker>[];
+
+    if (maxSharpe != null) {
+      markers.add(_markerFromPortfolio(
+        portfolio: maxSharpe!,
+        label: 'SHA',
+        color: Colors.red,
+        isOriginal: true,
+      ));
+    }
+    if (minVol != null) {
+      markers.add(_markerFromPortfolio(
+        portfolio: minVol!,
+        label: 'VAR',
+        color: Colors.blue,
+        isOriginal: true,
+      ));
+    }
+    if (maxSortino != null) {
+      markers.add(_markerFromPortfolio(
+        portfolio: maxSortino!,
+        label: 'SOR',
+        color: Colors.purple,
+        isOriginal: true,
+      ));
+    }
+
+    final rebalancedMarkers = [
+      _aggregateRebalanceMarker(
+        portfolioKey: 'max_sharpe',
+        label: "SHA'",
+        color: Colors.red,
+      ),
+      _aggregateRebalanceMarker(
+        portfolioKey: 'min_vol',
+        label: "VAR'",
+        color: Colors.blue,
+      ),
+      _aggregateRebalanceMarker(
+        portfolioKey: 'max_sortino',
+        label: "SOR'",
+        color: Colors.purple,
+      ),
+    ];
+
+    markers.addAll(rebalancedMarkers.whereType<_ChartMarker>());
+    return markers;
   }
 
   Widget _buildInputSection() {
@@ -864,6 +1588,14 @@ class _FrontierScreenState extends State<FrontierScreen> {
       maxYVal = max(maxYVal, (maxSortino!['y'] as num).toDouble());
     }
 
+    final chartMarkers = _chartMarkers();
+    for (final marker in chartMarkers) {
+      minXVal = min(minXVal, marker.x);
+      maxXVal = max(maxXVal, marker.x);
+      minYVal = min(minYVal, marker.y);
+      maxYVal = max(maxYVal, marker.y);
+    }
+
     double xPadding = (maxXVal - minXVal) * 0.05;
     double yPadding = (maxYVal - minYVal) * 0.05;
     
@@ -886,23 +1618,42 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 minY: minYVal - yPadding,
                 maxY: maxYVal + yPadding,
                 clipData: const FlClipData.none(),
+                scatterLabelSettings: ScatterLabelSettings(
+                  showLabel: true,
+                  getLabelFunction: (spotIndex, spot) {
+                    final markerIndex = spotIndex - scatterSpots.length;
+                    if (markerIndex < 0 || markerIndex >= chartMarkers.length) {
+                      return '';
+                    }
+                    return chartMarkers[markerIndex].label;
+                  },
+                  getLabelTextStyleFunction: (spotIndex, spot) {
+                    final markerIndex = spotIndex - scatterSpots.length;
+                    if (markerIndex < 0 || markerIndex >= chartMarkers.length) {
+                      return null;
+                    }
+                    final marker = chartMarkers[markerIndex];
+                    return TextStyle(
+                      color: marker.color.withOpacity(marker.isOriginal ? 0.55 : 1.0),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    );
+                  },
+                ),
                 scatterSpots: [
                   ...scatterSpots,
-                  if (maxSharpe != null)
-                    ScatterSpot(
-                      (maxSharpe!['x'] as num).toDouble(), (maxSharpe!['y'] as num).toDouble(),
-                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.red, strokeWidth: 2, strokeColor: Colors.white),
-                    ),
-                  if (minVol != null)
-                    ScatterSpot(
-                      (minVol!['x'] as num).toDouble(), (minVol!['y'] as num).toDouble(),
-                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.blue, strokeWidth: 2, strokeColor: Colors.white),
-                    ),
-                  if (maxSortino != null)
-                    ScatterSpot(
-                      (maxSortino!['x'] as num).toDouble(), (maxSortino!['y'] as num).toDouble(),
-                      dotPainter: FlDotCirclePainter(radius: 8, color: Colors.purple, strokeWidth: 2, strokeColor: Colors.white),
-                    ),
+                  ...chartMarkers.map((marker) {
+                    return ScatterSpot(
+                      marker.x,
+                      marker.y,
+                      dotPainter: FlDotCirclePainter(
+                        radius: marker.isOriginal ? 7.0 : 9.0,
+                        color: marker.color.withOpacity(marker.isOriginal ? 0.35 : 0.95),
+                        strokeWidth: marker.isOriginal ? 1.0 : 2.0,
+                        strokeColor: Colors.white,
+                      ),
+                    );
+                  }),
                 ],
                 titlesData: FlTitlesData(
                   bottomTitles: AxisTitles(
@@ -958,11 +1709,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _legendItem(Colors.red, "Max Sharpe"),
+          _legendItem(Colors.red, "SHA / SHA'"),
           const SizedBox(width: 20),
-          _legendItem(Colors.blue, "Min Volatility"),
+          _legendItem(Colors.blue, "VAR / VAR'"),
           const SizedBox(width: 20),
-          _legendItem(Colors.purple, "Max Sortino"),
+          _legendItem(Colors.purple, "SOR / SOR'"),
         ],
       ),
     );
@@ -978,6 +1729,19 @@ class _FrontierScreenState extends State<FrontierScreen> {
     );
   }
 
+  String _savedPortfolioSubtitle(Map<String, dynamic> data) {
+    final annualReturn = (data['return'] as num?)?.toDouble();
+    final returnText = annualReturn == null
+        ? "Annual Return: N/A"
+        : "Annual Return: ${(annualReturn * 100).toStringAsFixed(1)}%";
+    final interval = data['rebalance_interval_months'];
+    if (interval is num && interval > 0) {
+      final label = data['rebalance_label']?.toString() ?? "Every $interval months";
+      return "$returnText | Rebalance: $label";
+    }
+    return returnText;
+  }
+
   Widget _buildSavedPortfoliosSection() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -991,7 +1755,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
       mainAxisSize: MainAxisSize.min, 
       children: [
         const Divider(),
-        const Text("My Portfolios", style: TextStyle(fontWeight: FontWeight.bold)),
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('users')
@@ -1003,44 +1766,66 @@ class _FrontierScreenState extends State<FrontierScreen> {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
             
             final docs = snapshot.data!.docs;
-            if (docs.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("No portfolios saved yet", style: TextStyle(fontSize: 12))));
-
-            return ListView.builder(
-              shrinkWrap: true, 
-              physics: const NeverScrollableScrollPhysics(), 
-              itemCount: docs.length,
-              itemBuilder: (context, index) {
-                final data = docs[index].data() as Map<String, dynamic>;
-                final String portfolioType = data.containsKey('sortino')
-                    ? 'Max Sortino'
-                    : data['type'] ?? 'Portfolio';
-                final bool isMaxSharpe = portfolioType == 'Max Sharpe';
-                final bool isMaxSortino = portfolioType == 'Max Sortino';
-
-                return ListTile(
-                  dense: true,
-                  leading: Icon(
-                    isMaxSharpe
-                        ? Icons.trending_up
-                        : isMaxSortino
-                            ? Icons.trending_up_outlined
-                            : Icons.shield_outlined,
-                    color: isMaxSharpe
-                        ? Colors.red
-                        : isMaxSortino
-                            ? Colors.purple
-                            : Colors.blue,
-                    size: 20,
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "My Portfolios",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  title: Text("$portfolioType: ${data['tickers'].join(', ')}"),
-                  subtitle: Text("Annual Return: ${(data['return'] * 100).toStringAsFixed(1)}%"),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () => docs[index].reference.delete(),
+                ),
+                if (docs.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Text(
+                        "No portfolios saved yet",
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  )
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      final data = docs[index].data() as Map<String, dynamic>;
+                      final String portfolioType = data['type'] ?? 'Portfolio';
+                      final bool isMaxSharpe = portfolioType.contains('Sharpe');
+                      final bool isMaxSortino = portfolioType.contains('Sortino');
+
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          isMaxSharpe
+                              ? Icons.trending_up
+                              : isMaxSortino
+                                  ? Icons.trending_up_outlined
+                                  : Icons.shield_outlined,
+                          color: isMaxSharpe
+                              ? Colors.red
+                              : isMaxSortino
+                                  ? Colors.purple
+                                  : Colors.blue,
+                          size: 20,
+                        ),
+                        title: Text("$portfolioType: ${data['tickers'].join(', ')}"),
+                        subtitle: Text(_savedPortfolioSubtitle(data)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () => docs[index].reference.delete(),
+                        ),
+                        onTap: () => _showWeightsDialog(context, data),
+                      );
+                    },
                   ),
-                  onTap: () => _showWeightsDialog(context, data),
-                );
-              },
+              ],
             );
           },
         ),
@@ -1049,24 +1834,72 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   void _showWeightsDialog(BuildContext context, Map<String, dynamic> data) {
+    final weights = Map<String, dynamic>.from(data['weights'] as Map);
+    final rawRuns = data['rebalance_runs'];
+    final rebalanceHistory = rawRuns is Iterable
+        ? rawRuns.map((run) => Map<String, dynamic>.from(run as Map)).toList()
+        : <Map<String, dynamic>>[];
+
+    String pct(dynamic value) {
+      if (value is! num) return "N/A";
+      return "${(value.toDouble() * 100).toStringAsFixed(1)}%";
+    }
+
+    List<Widget> allocationRows(Map<String, dynamic> rowWeights) {
+      final entries = rowWeights.entries.toList()
+        ..sort((a, b) => (b.value as num).compareTo(a.value as num));
+
+      return entries.map((e) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text("${((e.value as num).toDouble() * 100).toStringAsFixed(1)}%"),
+            ],
+          ),
+        );
+      }).toList();
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("${data.containsKey('sortino') ? 'Max Sortino' : data['type'] ?? 'Portfolio'} Allocation"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: (data['weights'] as Map<String, dynamic>).entries.map((e) => 
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text("${(e.value * 100).toStringAsFixed(1)}%"),
+        title: Text("${data['type'] ?? 'Portfolio'} Allocation"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...allocationRows(weights),
+                if (rebalanceHistory.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  ...rebalanceHistory.map((run) {
+                    final runWeights = run['weights'] is Map
+                        ? Map<String, dynamic>.from(run['weights'] as Map)
+                        : <String, dynamic>{};
+
+                    return ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 8),
+                      title: Text(
+                        "Run ${run['number']}: ${run['rebalanced'] == true ? 'Rebalanced' : 'Kept'}",
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        "Train ${run['training_start_date']} - ${run['training_end_date']}\n"
+                        "Apply ${run['start_date']} - ${run['end_date']} | Return ${pct(run['return'])}",
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      children: allocationRows(runWeights),
+                    );
+                  }),
                 ],
-              ),
-            )
-          ).toList(),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
@@ -1074,4 +1907,32 @@ class _FrontierScreenState extends State<FrontierScreen> {
       ),
     );
   }
+}
+
+class _RebalanceChoice {
+  const _RebalanceChoice({
+    required this.code,
+    required this.label,
+    required this.months,
+  });
+
+  final String code;
+  final String label;
+  final int? months;
+}
+
+class _ChartMarker {
+  const _ChartMarker({
+    required this.x,
+    required this.y,
+    required this.label,
+    required this.color,
+    required this.isOriginal,
+  });
+
+  final double x;
+  final double y;
+  final String label;
+  final Color color;
+  final bool isOriginal;
 }
