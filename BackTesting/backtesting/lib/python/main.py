@@ -275,7 +275,6 @@ def _date_label(value) -> str:
     return pd.Timestamp(value).strftime("%Y-%m-%d")
 
 
-
 # --- ENDPOINT 5: Custom Portfolio Stats ---
 @app.post("/portfolio-stats")
 async def calculate_portfolio_stats(data: PortfolioStatsRequest):
@@ -453,8 +452,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
 
                 run[portfolio_key] = {
                     "x": application_stats["volatility"],
-                    "y": application_stats["cagr"],
-                    "return": application_stats["cagr"],
+                    "y": application_stats["annualized_return"],
+                    "return": application_stats["annualized_return"],
                     "period_return": application_stats["total_return"],
                     "annualized_return": application_stats["annualized_return"],
                     "cagr": application_stats["cagr"],
@@ -492,8 +491,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
 
             summary[portfolio_key] = {
                 "x": stats["volatility"],
-                "y": stats["cagr"],
-                "return": stats["cagr"],
+                "y": stats["annualized_return"],
+                "return": stats["annualized_return"],
                 "annualized_return": stats["annualized_return"],
                 "cagr": stats["cagr"],
                 "total_return": stats["total_return"],

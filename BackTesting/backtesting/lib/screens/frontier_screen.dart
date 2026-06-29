@@ -148,7 +148,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
     if (timeframe.startsWith('10')) return 10;
     return 5;
   }
-
+  
   int? get _selectedRebalanceMonths {
     if (_selectedRebalanceCode == 'custom') {
       return _customRebalanceMonths > 0 ? _customRebalanceMonths : null;
@@ -1376,6 +1376,48 @@ class _FrontierScreenState extends State<FrontierScreen> {
     return markers;
   }
 
+  bool _markersVisuallyOverlap(
+    _ChartMarker a,
+    _ChartMarker b,
+    double xRange,
+    double yRange,
+  ) {
+    final normalizedXDistance =
+        xRange == 0 ? 0.0 : (a.x - b.x).abs() / xRange;
+    final normalizedYDistance =
+        yRange == 0 ? 0.0 : (a.y - b.y).abs() / yRange;
+
+    return normalizedXDistance <= 0.018 && normalizedYDistance <= 0.018;
+  }
+
+  List<String> _chartMarkerLabels(
+    List<_ChartMarker> markers,
+    double xRange,
+    double yRange,
+  ) {
+    final labels = List<String>.filled(markers.length, '');
+    final used = List<bool>.filled(markers.length, false);
+
+    for (var i = 0; i < markers.length; i++) {
+      if (used[i]) continue;
+
+      used[i] = true;
+      final groupedLabels = <String>[markers[i].label];
+
+      for (var j = i + 1; j < markers.length; j++) {
+        if (used[j]) continue;
+        if (_markersVisuallyOverlap(markers[i], markers[j], xRange, yRange)) {
+          used[j] = true;
+          groupedLabels.add(markers[j].label);
+        }
+      }
+
+      labels[i] = groupedLabels.join(' / ');
+    }
+
+    return labels;
+  }
+
   Widget _buildInputSection() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -1596,6 +1638,12 @@ class _FrontierScreenState extends State<FrontierScreen> {
       maxYVal = max(maxYVal, marker.y);
     }
 
+    final markerLabels = _chartMarkerLabels(
+      chartMarkers,
+      maxXVal - minXVal,
+      maxYVal - minYVal,
+    );
+
     double xPadding = (maxXVal - minXVal) * 0.05;
     double yPadding = (maxYVal - minYVal) * 0.05;
     
@@ -1625,7 +1673,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     if (markerIndex < 0 || markerIndex >= chartMarkers.length) {
                       return '';
                     }
-                    return chartMarkers[markerIndex].label;
+                    return markerLabels[markerIndex];
                   },
                   getLabelTextStyleFunction: (spotIndex, spot) {
                     final markerIndex = spotIndex - scatterSpots.length;
@@ -1634,7 +1682,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                     }
                     final marker = chartMarkers[markerIndex];
                     return TextStyle(
-                      color: marker.color.withOpacity(marker.isOriginal ? 0.55 : 1.0),
+                      color: marker.color.withOpacity(marker.isOriginal ? 0.9 : 1.0),
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     );
@@ -1648,7 +1696,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       marker.y,
                       dotPainter: FlDotCirclePainter(
                         radius: marker.isOriginal ? 7.0 : 9.0,
-                        color: marker.color.withOpacity(marker.isOriginal ? 0.35 : 0.95),
+                        color: marker.color.withOpacity(marker.isOriginal ? 0.55 : 0.95),
                         strokeWidth: marker.isOriginal ? 1.0 : 2.0,
                         strokeColor: Colors.white,
                       ),
