@@ -59,6 +59,8 @@ class RollingBacktestRequest(BaseModel):
     lookback_years: int = 5
     rebalance_months: int = 6
     num_portfolios: int = 20000
+    use_ledoit_wolf: bool = False
+    return_shrinkage: float = 0.0
 
 
 OPTIMIZATION_TRADING_DAYS = 250
@@ -94,11 +96,61 @@ def _adj_close_table(downloaded_data, selected: List[str]) -> pd.DataFrame:
     return table.dropna(axis=1, how='all').dropna()
 
 
+def _model_settings(use_ledoit_wolf: bool, return_shrinkage: float) -> Dict:
+    return {
+        "use_ledoit_wolf": use_ledoit_wolf,
+        "return_shrinkage": return_shrinkage,
+    }
+
+
+def _annual_returns(
+    returns_daily: pd.DataFrame,
+    return_shrinkage: float,
+) -> np.ndarray:
+    if return_shrinkage < 0 or return_shrinkage > 1:
+        raise ValueError("return_shrinkage must be between 0.0 and 1.0.")
+
+    raw_returns = returns_daily.mean() * OPTIMIZATION_TRADING_DAYS
+    if return_shrinkage == 0:
+        return raw_returns.values
+
+    target_return = raw_returns.mean()
+    shrunk_returns = (
+        (1 - return_shrinkage) * raw_returns
+        + return_shrinkage * target_return
+    )
+    return shrunk_returns.values
+
+
+def _annual_covariance(
+    returns_daily: pd.DataFrame,
+    use_ledoit_wolf: bool,
+) -> np.ndarray:
+    if not use_ledoit_wolf or len(returns_daily.columns) == 1:
+        return (returns_daily.cov() * OPTIMIZATION_TRADING_DAYS).values
+
+    try:
+        from sklearn.covariance import LedoitWolf
+    except ImportError as exc:
+        raise ValueError(
+            "Ledoit-Wolf shrinkage requires scikit-learn to be installed."
+        ) from exc
+
+    try:
+        cov_daily = LedoitWolf().fit(returns_daily.values).covariance_
+    except Exception as exc:
+        raise ValueError(f"Ledoit-Wolf shrinkage failed: {exc}") from exc
+
+    return cov_daily * OPTIMIZATION_TRADING_DAYS
+
+
 def _optimize_from_returns(
     returns_daily: pd.DataFrame,
     max_weight: float,
     num_portfolios: int,
     include_scatter: bool = True,
+    use_ledoit_wolf: bool = False,
+    return_shrinkage: float = 0.0,
 ) -> Dict:
     returns_daily = returns_daily.dropna(axis=1, how='all').dropna()
     selected = list(returns_daily.columns)
@@ -109,8 +161,8 @@ def _optimize_from_returns(
     if num_assets * max_weight < 1.0:
         raise ValueError(f"Kan ikke summere til 100% med {num_assets} aktier og et max på {max_weight*100}%.")
 
-    returns_annual = (returns_daily.mean() * OPTIMIZATION_TRADING_DAYS).values
-    cov_annual = (returns_daily.cov() * OPTIMIZATION_TRADING_DAYS).values
+    returns_annual = _annual_returns(returns_daily, return_shrinkage)
+    cov_annual = _annual_covariance(returns_daily, use_ledoit_wolf)
 
     valid_weights_list = []
     batch_size = 50000
@@ -344,7 +396,9 @@ def get_portfolio_data(
     max_weight: float = 0.30,
     start_date: str = "2015-01-01",
     end_date: str = "2019-12-31",
-    num_portfolios: int = 20000
+    num_portfolios: int = 20000,
+    use_ledoit_wolf: bool = False,
+    return_shrinkage: float = 0.0
 ):
     selected = _selected_tickers_from_string(tickers)
 
@@ -355,7 +409,18 @@ def get_portfolio_data(
         data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
         table = _adj_close_table(data, selected)
         returns_daily = table.pct_change().dropna()
-        return _optimize_from_returns(returns_daily, max_weight, num_portfolios)
+        result = _optimize_from_returns(
+            returns_daily,
+            max_weight,
+            num_portfolios,
+            use_ledoit_wolf=use_ledoit_wolf,
+            return_shrinkage=return_shrinkage,
+        )
+        result["model_settings"] = _model_settings(
+            use_ledoit_wolf,
+            return_shrinkage,
+        )
+        return result
     except ValueError as e:
         return {"error": str(e)}
 
@@ -366,6 +431,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
             raise HTTPException(status_code=400, detail="lookback_years must be greater than 0.")
         if data.rebalance_months <= 0:
             raise HTTPException(status_code=400, detail="rebalance_months must be greater than 0.")
+        if data.return_shrinkage < 0 or data.return_shrinkage > 1:
+            raise HTTPException(status_code=400, detail="return_shrinkage must be between 0.0 and 1.0.")
 
         selected = _selected_tickers_from_list(data.tickers)
         if not selected:
@@ -430,6 +497,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
                 data.max_weight,
                 data.num_portfolios,
                 include_scatter=False,
+                use_ledoit_wolf=data.use_ledoit_wolf,
+                return_shrinkage=data.return_shrinkage,
             )
 
             run = {
@@ -513,6 +582,10 @@ async def rolling_backtest(data: RollingBacktestRequest):
             "backtest_end_date": _date_label(backtest_end),
             "lookback_years": data.lookback_years,
             "rebalance_months": data.rebalance_months,
+            "model_settings": _model_settings(
+                data.use_ledoit_wolf,
+                data.return_shrinkage,
+            ),
             "valid_tickers": valid_tickers,
             "runs": runs,
             "summary": summary,

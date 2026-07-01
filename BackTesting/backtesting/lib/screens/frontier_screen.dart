@@ -28,6 +28,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
   String _selectedTimeframe = '5 YR';
+  bool _useLedoitWolf = false;
+  double _selectedReturnShrinkage = 0.0;
   
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
@@ -42,6 +44,12 @@ class _FrontierScreenState extends State<FrontierScreen> {
   String _selectedRebalanceCode = 'skip';
   int _customRebalanceMonths = 9;
   final List<String> _timeframeOptions = ['1 YR', '3 YR', '5 YR', '10 YR'];
+  final List<_ReturnShrinkageChoice> _returnShrinkageChoices = const [
+    _ReturnShrinkageChoice(value: 0.0, label: 'None'),
+    _ReturnShrinkageChoice(value: 0.25, label: 'Light'),
+    _ReturnShrinkageChoice(value: 0.5, label: 'Medium'),
+    _ReturnShrinkageChoice(value: 0.75, label: 'Strong'),
+  ];
   
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -179,6 +187,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required DateTime startDate,
     required DateTime endDate,
     required int numPortfolios,
+    required bool useLedoitWolf,
+    required double returnShrinkage,
   }) async {
     final url = Uri.parse(
       'https://efficientfrontier.onrender.com/optimize'
@@ -187,6 +197,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&start_date=${_formatDate(startDate)}'
       '&end_date=${_formatDate(endDate)}'
       '&num_portfolios=$numPortfolios'
+      '&use_ledoit_wolf=$useLedoitWolf'
+      '&return_shrinkage=$returnShrinkage'
       '&t=${DateTime.now().millisecondsSinceEpoch}'
     );
 
@@ -218,6 +230,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required int lookbackYears,
     required int rebalanceMonths,
     required int numPortfolios,
+    required bool useLedoitWolf,
+    required double returnShrinkage,
   }) async {
     final response = await http.post(
       Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
@@ -230,6 +244,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
         "lookback_years": lookbackYears,
         "rebalance_months": rebalanceMonths,
         "num_portfolios": numPortfolios,
+        "use_ledoit_wolf": useLedoitWolf,
+        "return_shrinkage": returnShrinkage,
       }),
     ).timeout(const Duration(seconds: 2000));
 
@@ -522,6 +538,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
         startDate: startDate,
         endDate: endDate,
         numPortfolios: _selectedPortfolios,
+        useLedoitWolf: _useLedoitWolf,
+        returnShrinkage: _selectedReturnShrinkage,
       );
       List<Map<String, dynamic>> rollingRuns = [];
       Map<String, dynamic>? rollingSummary;
@@ -537,6 +555,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
             lookbackYears: lookbackYears,
             rebalanceMonths: _selectedRebalanceMonths!,
             numPortfolios: _selectedPortfolios,
+            useLedoitWolf: _useLedoitWolf,
+            returnShrinkage: _selectedReturnShrinkage,
           );
           rollingRuns = (rollingData['runs'] as List)
               .map((run) => Map<String, dynamic>.from(run as Map))
@@ -970,6 +990,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 const SizedBox(height: 15),
                 _buildSettingsRow(),
                 const SizedBox(height: 10),
+                _buildModelSettingsRow(isWide),
+                const SizedBox(height: 10),
                 _buildRebalanceSettings(isWide),
                 const SizedBox(height: 10),
                 _buildCustomPortfolioSection(), 
@@ -1054,6 +1076,63 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   const SizedBox(height: 8),
                   customInput,
                 ],
+              ],
+            ),
+    );
+  }
+
+  Widget _buildModelSettingsRow(bool isWide) {
+    final ledoitWolfDropdown = DropdownButtonFormField<bool>(
+      decoration: const InputDecoration(
+        labelText: "Ledoit-Wolf Shrinkage",
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      value: _useLedoitWolf,
+      items: const [
+        DropdownMenuItem(value: false, child: Text("No")),
+        DropdownMenuItem(value: true, child: Text("Yes")),
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _useLedoitWolf = value);
+      },
+    );
+
+    final returnShrinkageDropdown = DropdownButtonFormField<double>(
+      decoration: const InputDecoration(
+        labelText: "Return Shrinkage",
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      value: _selectedReturnShrinkage,
+      items: _returnShrinkageChoices.map((choice) {
+        return DropdownMenuItem(
+          value: choice.value,
+          child: Text(choice.label),
+        );
+      }).toList(),
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _selectedReturnShrinkage = value);
+      },
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: isWide
+          ? Row(
+              children: [
+                Expanded(child: ledoitWolfDropdown),
+                const SizedBox(width: 8),
+                Expanded(child: returnShrinkageDropdown),
+              ],
+            )
+          : Column(
+              children: [
+                ledoitWolfDropdown,
+                const SizedBox(height: 8),
+                returnShrinkageDropdown,
               ],
             ),
     );
@@ -1967,6 +2046,16 @@ class _RebalanceChoice {
   final String code;
   final String label;
   final int? months;
+}
+
+class _ReturnShrinkageChoice {
+  const _ReturnShrinkageChoice({
+    required this.value,
+    required this.label,
+  });
+
+  final double value;
+  final String label;
 }
 
 class _ChartMarker {

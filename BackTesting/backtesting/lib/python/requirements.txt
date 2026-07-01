@@ -5,4 +5,5 @@ yfinance
 pandas
 numpy
 scipy
+scikit-learn
 pydantic
