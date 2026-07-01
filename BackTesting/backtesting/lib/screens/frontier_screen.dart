@@ -431,6 +431,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
         startDate: trainingStart,
         endDate: rebalanceDate,
         numPortfolios: _selectedPortfolios,
+        useLedoitWolf: _useLedoitWolf,
+        returnShrinkage: _selectedReturnShrinkage,
       );
 
       final maxSharpeRun = await _walkForwardPortfolioForObjective(
