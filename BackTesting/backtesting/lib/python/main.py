@@ -70,17 +70,18 @@ OBJECTIVE_KEYS = ("max_sharpe", "min_vol", "max_sortino")
 
 def _selected_tickers_from_string(tickers: str) -> List[str]:
     if not tickers:
-        selected = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE']
+        selected = ['AAPL', 'MSFT', 'GOOGL','TSLA', 'XOM','V' , 'JNJ', 'AMZN', 'WMT','ADBE','NVDA','META',
+                    'NFLX','INTC','KO']
     else:
         selected = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
-    selected = list(set(selected))[:15]
+    selected = list(set(selected))[:30]
     selected.sort()
     return selected
 
 
 def _selected_tickers_from_list(tickers: List[str]) -> List[str]:
-    selected = list(set([t.strip().upper() for t in tickers if t.strip()]))[:15]
+    selected = list(set([t.strip().upper() for t in tickers if t.strip()]))[:30]
     selected.sort()
     return selected
 
