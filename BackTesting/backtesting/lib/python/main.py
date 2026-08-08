@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional
 import uvicorn
 import os
 
@@ -56,6 +56,7 @@ class RollingBacktestRequest(BaseModel):
     max_weight: float = 0.30
     backtest_start_date: str
     backtest_end_date: str
+    report_start_date: Optional[str] = None
     lookback_years: int = 5
     rebalance_months: int = 6
     num_portfolios: int = 20000
@@ -421,6 +422,15 @@ def get_portfolio_data(
             use_ledoit_wolf,
             return_shrinkage,
         )
+        result["methodology"] = {
+            "evaluation_type": "ex_post_in_sample",
+            "label": "Ex-post in-sample",
+            "selection_start_date": _date_label(start_date),
+            "selection_end_date": _date_label(end_date),
+            "evaluation_start_date": _date_label(start_date),
+            "evaluation_end_date": _date_label(end_date),
+            "uses_same_period_for_selection_and_evaluation": True,
+        }
         return result
     except ValueError as e:
         return {"error": str(e)}
@@ -448,6 +458,17 @@ async def rolling_backtest(data: RollingBacktestRequest):
         backtest_end = pd.Timestamp(data.backtest_end_date)
         if backtest_end <= backtest_start:
             raise HTTPException(status_code=400, detail="backtest_end_date must be after backtest_start_date.")
+
+        report_start = (
+            pd.Timestamp(data.report_start_date)
+            if data.report_start_date
+            else backtest_start
+        )
+        if report_start < backtest_start or report_start >= backtest_end:
+            raise HTTPException(
+                status_code=400,
+                detail="report_start_date must be on or after backtest_start_date and before backtest_end_date.",
+            )
 
         download_start = backtest_start - pd.DateOffset(years=data.lookback_years)
         raw_data = yf.download(
@@ -545,6 +566,52 @@ async def rolling_backtest(data: RollingBacktestRequest):
         if not runs:
             raise HTTPException(status_code=400, detail="No rebalance windows could be calculated for the selected dates.")
 
+        next_training_start = backtest_end - pd.DateOffset(years=data.lookback_years)
+        next_training_returns = _window_returns(
+            price_table,
+            valid_tickers,
+            next_training_start,
+            backtest_end,
+        )
+        if len(next_training_returns) < 30:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Not enough lookback data before {_date_label(backtest_end)} "
+                    "to calculate the next allocation. Try a shorter lookback or later backtest end date."
+                ),
+            )
+
+        next_optimization = _optimize_from_returns(
+            next_training_returns,
+            data.max_weight,
+            data.num_portfolios,
+            include_scatter=False,
+            use_ledoit_wolf=data.use_ledoit_wolf,
+            return_shrinkage=data.return_shrinkage,
+        )
+        next_portfolios = {}
+        for portfolio_key in OBJECTIVE_KEYS:
+            candidate = next_optimization[portfolio_key]
+            next_portfolio = {
+                "weights": candidate["weights"],
+                "training_return": candidate["y"],
+                "training_volatility": candidate["x"],
+            }
+            if "sharpe" in candidate:
+                next_portfolio["training_sharpe"] = candidate["sharpe"]
+            if "sortino" in candidate:
+                next_portfolio["training_sortino"] = candidate["sortino"]
+            next_portfolios[portfolio_key] = next_portfolio
+
+        next_allocations = {
+            "as_of_date": _date_label(backtest_end),
+            "training_start_date": _date_label(next_training_start),
+            "training_end_date": _date_label(backtest_end),
+            "training_data_cutoff": "strictly_before_as_of_date",
+            "portfolios": next_portfolios,
+        }
+
         summary = {}
         for portfolio_key in OBJECTIVE_KEYS:
             daily_parts = [
@@ -555,8 +622,9 @@ async def rolling_backtest(data: RollingBacktestRequest):
                 continue
 
             full_daily = pd.concat(daily_parts).sort_index()
-            stats = _performance_stats_from_daily(full_daily)
-            equity_curve = (1 + full_daily).cumprod() * 100
+            report_daily = full_daily.loc[full_daily.index >= report_start]
+            stats = _performance_stats_from_daily(report_daily)
+            equity_curve = (1 + report_daily).cumprod() * 100
             latest_weights = strategy_state[portfolio_key]["latest_weights"]
 
             summary[portfolio_key] = {
@@ -581,8 +649,20 @@ async def rolling_backtest(data: RollingBacktestRequest):
             "download_start_date": _date_label(download_start),
             "backtest_start_date": _date_label(backtest_start),
             "backtest_end_date": _date_label(backtest_end),
+            "report_start_date": _date_label(report_start),
             "lookback_years": data.lookback_years,
             "rebalance_months": data.rebalance_months,
+            "methodology": {
+                "evaluation_type": "rolling_walk_forward_out_of_sample",
+                "label": "Rolling walk-forward out-of-sample",
+                "strategy_start_date": _date_label(backtest_start),
+                "evaluation_start_date": _date_label(report_start),
+                "evaluation_end_date": _date_label(backtest_end),
+                "lookback_years": data.lookback_years,
+                "rebalance_months": data.rebalance_months,
+                "reoptimized_each_window": True,
+                "training_data_cutoff": "strictly_before_each_rebalance_date",
+            },
             "model_settings": _model_settings(
                 data.use_ledoit_wolf,
                 data.return_shrinkage,
@@ -590,6 +670,7 @@ async def rolling_backtest(data: RollingBacktestRequest):
             "valid_tickers": valid_tickers,
             "runs": runs,
             "summary": summary,
+            "next_allocations": next_allocations,
         }
 
     except HTTPException:

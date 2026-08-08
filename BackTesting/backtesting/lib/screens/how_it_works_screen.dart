@@ -67,7 +67,7 @@ class HowItWorksScreen extends StatelessWidget {
                   _SectionTitle(title: "Training vs. Testing", theme: theme),
                   const SizedBox(height: 10),
                   Text(
-                    "The optimization period is the training window. It is used to estimate returns, risk, and portfolio weights. The performance screen then evaluates the saved weights after the training period, which gives a more realistic out-of-sample test.",
+                    "On the frontier chart, IS means ex-post in-sample: the same displayed period is used to select and measure the portfolio. WF means rolling walk-forward out-of-sample: each allocation uses only the preceding lookback window and is then measured during the next holding window. Because WF also reoptimizes over time, the distance between IS and WF is not simply a rebalance-versus-no-rebalance effect. In the Performance screen, static portfolios keep their saved weights while WF strategies continue their saved reoptimization schedule using only data available at each boundary.",
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.5,

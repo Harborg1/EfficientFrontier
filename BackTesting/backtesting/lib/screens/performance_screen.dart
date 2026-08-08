@@ -63,37 +63,45 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       throw const FormatException("Saved portfolio is missing weights.");
     }
 
-    final rawTickers = data['tickers'];
-    if (rawTickers is! Iterable) {
-      throw const FormatException("Saved portfolio is missing tickers.");
-    }
-
-    final tickers = <String>[];
+    final tickers = _tickersFromPortfolio(data);
     final weights = <String, double>{};
 
-    for (final rawTicker in rawTickers) {
-      final ticker = rawTicker.toString();
-      if (ticker.isEmpty) {
-        throw const FormatException("Saved portfolio contains an empty ticker.");
-      }
-
+    for (final ticker in tickers) {
       final weight = rawWeights[ticker];
       if (weight is! num) {
         throw FormatException("Saved portfolio is missing a numeric weight for $ticker.");
       }
 
-      tickers.add(ticker);
       weights[ticker] = weight.toDouble();
-    }
-
-    if (tickers.isEmpty) {
-      throw const FormatException("Saved portfolio has no tickers.");
     }
 
     return _PortfolioPayload(
       tickers: tickers,
       weights: weights,
     );
+  }
+
+  List<String> _tickersFromPortfolio(Map<String, dynamic> data) {
+    final rawTickers = data['tickers'];
+    if (rawTickers is! Iterable) {
+      throw const FormatException("Saved portfolio is missing tickers.");
+    }
+
+    final tickers = <String>[];
+
+    for (final rawTicker in rawTickers) {
+      final ticker = rawTicker.toString();
+      if (ticker.isEmpty) {
+        throw const FormatException("Saved portfolio contains an empty ticker.");
+      }
+      tickers.add(ticker);
+    }
+
+    if (tickers.isEmpty) {
+      throw const FormatException("Saved portfolio has no tickers.");
+    }
+
+    return tickers;
   }
 
   Map<String, dynamic> _backtestRequestBody(
@@ -131,6 +139,306 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     throw FormatException("$action returned an unexpected response.");
   }
 
+  bool _isRollingStrategy(Map<String, dynamic> data) {
+    return data['rebalance_strategy'] == true;
+  }
+
+  dynamic _savedSetting(
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value != null) return value;
+    }
+
+    final rawModelSettings = data['model_settings'];
+    if (rawModelSettings is Map) {
+      for (final key in keys) {
+        final value = rawModelSettings[key];
+        if (value != null) return value;
+      }
+    }
+
+    return null;
+  }
+
+  double _savedDoubleSetting(
+    Map<String, dynamic> data,
+    List<String> keys,
+    double fallback,
+    String label,
+  ) {
+    final value = _savedSetting(data, keys);
+    if (value == null) return fallback;
+    if (value is num) return value.toDouble();
+    throw FormatException("Saved rolling portfolio has an invalid $label.");
+  }
+
+  int _savedIntSetting(
+    Map<String, dynamic> data,
+    List<String> keys,
+    int fallback,
+    String label,
+  ) {
+    final value = _savedSetting(data, keys);
+    if (value == null) return fallback;
+    if (value is num) return value.toInt();
+    throw FormatException("Saved rolling portfolio has an invalid $label.");
+  }
+
+  bool _savedBoolSetting(
+    Map<String, dynamic> data,
+    List<String> keys,
+    bool fallback,
+    String label,
+  ) {
+    final value = _savedSetting(data, keys);
+    if (value == null) return fallback;
+    if (value is bool) return value;
+    throw FormatException("Saved rolling portfolio has an invalid $label.");
+  }
+
+  String _rollingObjective(Map<String, dynamic> data) {
+    final savedObjective = _savedSetting(data, const [
+      'rolling_objective',
+      'objective',
+      'portfolio_objective',
+    ]);
+    if (savedObjective != null) {
+      final objective = savedObjective.toString();
+      if (const {'max_sharpe', 'min_vol', 'max_sortino'}.contains(objective)) {
+        return objective;
+      }
+      throw const FormatException(
+        "Saved rolling portfolio has an unsupported objective.",
+      );
+    }
+
+    // Legacy rolling portfolios predate the explicit rolling_objective field.
+    final type = data['type']?.toString().toLowerCase() ?? '';
+    if (type.contains('sortino')) return 'max_sortino';
+    if (type.contains('volatility') || type.contains('risk')) return 'min_vol';
+    if (type.contains('sharpe')) return 'max_sharpe';
+    throw const FormatException(
+      "Saved rolling portfolio is missing its optimization objective.",
+    );
+  }
+
+  DateTime _trainEndDateFromPortfolio(Map<String, dynamic> data) {
+    final value = data['train_end_date'];
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    throw const FormatException(
+      "Saved portfolio is missing a valid training end date.",
+    );
+  }
+
+  String _dateString(DateTime date) {
+    return date.toIso8601String().substring(0, 10);
+  }
+
+  Map<String, dynamic> _rollingBacktestRequestBody(
+    Map<String, dynamic> data,
+    String reportStartDate,
+    String endDate,
+  ) {
+    final maxWeight = _savedDoubleSetting(
+      data,
+      const ['max_weight', 'optimization_max_weight'],
+      0.30,
+      'maximum weight',
+    );
+    final lookbackYears = _savedIntSetting(
+      data,
+      const ['lookback_years', 'optimization_lookback_years'],
+      5,
+      'lookback window',
+    );
+    final rebalanceMonths = _savedIntSetting(
+      data,
+      const ['rebalance_interval_months'],
+      6,
+      'rebalance interval',
+    );
+    final numPortfolios = _savedIntSetting(
+      data,
+      const ['num_portfolios', 'optimization_portfolios'],
+      20000,
+      'portfolio count',
+    );
+    final useLedoitWolf = _savedBoolSetting(
+      data,
+      const ['use_ledoit_wolf', 'optimization_use_ledoit_wolf'],
+      false,
+      'covariance shrinkage setting',
+    );
+    final returnShrinkage = _savedDoubleSetting(
+      data,
+      const ['return_shrinkage', 'optimization_return_shrinkage'],
+      0.0,
+      'return shrinkage setting',
+    );
+
+    if (maxWeight <= 0 || maxWeight > 1) {
+      throw const FormatException(
+        "Saved rolling portfolio has an invalid maximum weight.",
+      );
+    }
+    if (lookbackYears <= 0 || rebalanceMonths <= 0 || numPortfolios <= 0) {
+      throw const FormatException(
+        "Saved rolling portfolio has invalid optimization settings.",
+      );
+    }
+    if (returnShrinkage < 0 || returnShrinkage > 1) {
+      throw const FormatException(
+        "Saved rolling portfolio has an invalid return shrinkage setting.",
+      );
+    }
+
+    return {
+      "tickers": _tickersFromPortfolio(data),
+      "max_weight": maxWeight,
+      // Keep the strategy anchored at its original OOS start. report_start_date
+      // only filters the requested chart/stat period, so 1m/6m views do not
+      // create an artificial rebalance date.
+      "backtest_start_date": _dateString(_trainEndDateFromPortfolio(data)),
+      "backtest_end_date": endDate,
+      "report_start_date": reportStartDate,
+      "lookback_years": lookbackYears,
+      "rebalance_months": rebalanceMonths,
+      "num_portfolios": numPortfolios,
+      "use_ledoit_wolf": useLedoitWolf,
+      "return_shrinkage": returnShrinkage,
+    };
+  }
+
+  Future<Map<String, dynamic>> _requestBacktest(
+    _PortfolioPayload payload,
+    String startDate,
+    String endDate,
+    String benchmark,
+  ) async {
+    final response = await http.post(
+      Uri.parse('https://efficientfrontier.onrender.com/backtest'),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(
+        _backtestRequestBody(payload, startDate, endDate, benchmark),
+      ),
+    ).timeout(const Duration(seconds: 125));
+    return _decodeApiResponse(response, "Backtest");
+  }
+
+  _PerformanceResult _performanceFromBacktest(
+    Map<String, dynamic> data, {
+    String curveKey = 'portfolio',
+    String statsKey = 'portfolio_stats',
+  }) {
+    final rawCurve = data[curveKey];
+    final rawStats = data[statsKey];
+    if (rawCurve is! List || rawStats is! Map) {
+      throw const FormatException("Backtest returned incomplete performance data.");
+    }
+    return _PerformanceResult(
+      curve: List<dynamic>.from(rawCurve),
+      stats: Map<String, dynamic>.from(rawStats),
+    );
+  }
+
+  double _rollingMetric(
+    Map<String, dynamic> summary,
+    String key,
+  ) {
+    final value = summary[key];
+    if (value is! num) {
+      throw FormatException("Rolling backtest is missing the $key metric.");
+    }
+    return value.toDouble();
+  }
+
+  double _roundMetric(double value) {
+    return double.parse(value.toStringAsFixed(2));
+  }
+
+  _PerformanceResult _performanceFromRollingBacktest(
+    Map<String, dynamic> data,
+    String objective,
+  ) {
+    final rawSummary = data['summary'];
+    if (rawSummary is! Map || rawSummary[objective] is! Map) {
+      throw FormatException(
+        "Rolling backtest did not return results for $objective.",
+      );
+    }
+
+    final summary = Map<String, dynamic>.from(rawSummary[objective] as Map);
+    final rawCurve = summary['equity_curve'];
+    if (rawCurve is! List) {
+      throw const FormatException(
+        "Rolling backtest returned no equity curve.",
+      );
+    }
+
+    return _PerformanceResult(
+      curve: List<dynamic>.from(rawCurve),
+      stats: {
+        'sharpe': _roundMetric(_rollingMetric(summary, 'sharpe')),
+        'sortino': _roundMetric(_rollingMetric(summary, 'sortino')),
+        'volatility': _roundMetric(
+          _rollingMetric(summary, 'volatility') * 100,
+        ),
+        'perf': _roundMetric(_rollingMetric(summary, 'total_return') * 100),
+        'max_drawdown': _roundMetric(
+          _rollingMetric(summary, 'max_drawdown') * 100,
+        ),
+      },
+    );
+  }
+
+  Future<_PerformanceResult> _requestSavedPortfolioPerformance(
+    Map<String, dynamic> data,
+    String reportStartDate,
+    String endDate,
+  ) async {
+    if (!_isRollingStrategy(data)) {
+      final response = await _requestBacktest(
+        _payloadFromPortfolio(data),
+        reportStartDate,
+        endDate,
+        'SPY',
+      );
+      return _performanceFromBacktest(response);
+    }
+
+    final response = await http.post(
+      Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(
+        _rollingBacktestRequestBody(data, reportStartDate, endDate),
+      ),
+    ).timeout(const Duration(seconds: 2000));
+    final decoded = _decodeApiResponse(response, "Rolling backtest");
+    return _performanceFromRollingBacktest(decoded, _rollingObjective(data));
+  }
+
+  Future<_PerformanceResult> _requestBenchmarkPerformance(
+    String ticker,
+    String startDate,
+    String endDate,
+  ) async {
+    final response = await _requestBacktest(
+      _PortfolioPayload(tickers: [ticker], weights: {ticker: 1.0}),
+      startDate,
+      endDate,
+      ticker,
+    );
+    return _performanceFromBacktest(response);
+  }
+
   String _displayError(Object error) {
     return error
         .toString()
@@ -143,6 +451,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Future<void> _fetchBacktestData(List<QueryDocumentSnapshot> docs) async {
     if (_selectedPortfolioData == null) return;
 
+    final selectedData = Map<String, dynamic>.from(_selectedPortfolioData!);
+
     setState(() {
       _isLoading = true;
       _portfolioSpots = [];
@@ -152,111 +462,118 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       _backtestError = null;
     });
 
-    final DateTime today = DateTime.now();
-    final DateTime trainEndDate = DateTime.parse(_selectedPortfolioData!['train_end_date']);
-    DateTime startDateObj;
-
-    switch (_selectedTimeframe) {
-      case '1mo': startDateObj = today.subtract(const Duration(days: 30)); break;
-      case '6mo': startDateObj = today.subtract(const Duration(days: 182)); break;
-      case '1y':  startDateObj = today.subtract(const Duration(days: 365)); break;
-      case 'max':
-      default:    startDateObj = trainEndDate; break;
-    }
-
-    if (startDateObj.isBefore(trainEndDate)) {
-      startDateObj = trainEndDate;
-    }
-
-    final String finalStartStr = startDateObj.toIso8601String().substring(0, 10);
-    final String finalEndStr = today.toIso8601String().substring(0, 10);
-
-    setState(() => _currentVisibleStartDate = finalStartStr);
-
-    final url = Uri.parse('https://efficientfrontier.onrender.com/backtest');
-
     try {
-      final selectedPayload = _payloadFromPortfolio(_selectedPortfolioData!);
+      final DateTime today = DateTime.now();
+      final DateTime trainEndDate = _trainEndDateFromPortfolio(selectedData);
+      DateTime startDateObj;
+
+      switch (_selectedTimeframe) {
+        case '1mo':
+          startDateObj = today.subtract(const Duration(days: 30));
+          break;
+        case '6mo':
+          startDateObj = today.subtract(const Duration(days: 182));
+          break;
+        case '1y':
+          startDateObj = today.subtract(const Duration(days: 365));
+          break;
+        case 'max':
+        default:
+          startDateObj = trainEndDate;
+          break;
+      }
+
+      if (startDateObj.isBefore(trainEndDate)) {
+        startDateObj = trainEndDate;
+      }
+
+      Map<String, dynamic>? comparisonData;
+      if (_selectedComparisonId != 'none' &&
+          !_selectedComparisonId.startsWith('bench_')) {
+        final comparisonDoc = docs.firstWhere(
+          (doc) => doc.id == _selectedComparisonId,
+        );
+        comparisonData = Map<String, dynamic>.from(
+          comparisonDoc.data() as Map,
+        );
+        final comparisonTrainEnd = _trainEndDateFromPortfolio(comparisonData);
+        if (startDateObj.isBefore(comparisonTrainEnd)) {
+          startDateObj = comparisonTrainEnd;
+        }
+      }
+
+      if (!today.isAfter(startDateObj)) {
+        throw const FormatException(
+          "No out-of-sample dates are available for this selection.",
+        );
+      }
+
+      final String finalStartStr = _dateString(startDateObj);
+      final String finalEndStr = _dateString(today);
+
+      if (mounted) {
+        setState(() => _currentVisibleStartDate = finalStartStr);
+      }
 
       // 1. SCENARIE: INGEN SAMMENLIGNING
       if (_selectedComparisonId == 'none') {
-        final response = await http.post(url, headers: {"Content-Type": "application/json"},
-          body: jsonEncode(_backtestRequestBody(
-            selectedPayload,
-            finalStartStr,
-            finalEndStr,
-            "SPY",
-          ))
-        ).timeout(const Duration(seconds: 125));
-
-        final data = _decodeApiResponse(response, "Backtest");
+        final result = await _requestSavedPortfolioPerformance(
+          selectedData,
+          finalStartStr,
+          finalEndStr,
+        );
         if (!mounted) return;
         setState(() {
-          _portfolioSpots = _mapToSpots(data['portfolio']);
-          _portfolioStats = data['portfolio_stats'];
+          _portfolioSpots = _mapToSpots(result.curve);
+          _portfolioStats = result.stats;
           _benchmarkSpots = [];
           _benchmarkStats = null;
         });
-      } 
+      }
       // 2. SCENARIE: STANDARD BENCHMARK
       else if (_selectedComparisonId.startsWith('bench_')) {
         final ticker = _selectedComparisonId.replaceFirst('bench_', '');
-        final response = await http.post(url, headers: {"Content-Type": "application/json"},
-          body: jsonEncode(_backtestRequestBody(
-            selectedPayload,
+        final results = await Future.wait<_PerformanceResult>([
+          _requestSavedPortfolioPerformance(
+            selectedData,
             finalStartStr,
             finalEndStr,
-            ticker,
-          ))
-        ).timeout(const Duration(seconds: 125));
-
-        final data = _decodeApiResponse(response, "Backtest");
+          ),
+          _requestBenchmarkPerformance(ticker, finalStartStr, finalEndStr),
+        ]);
         if (!mounted) return;
         setState(() {
-          _portfolioSpots = _mapToSpots(data['portfolio']);
-          _portfolioStats = data['portfolio_stats'];
-          _benchmarkSpots = _mapToSpots(data['benchmark']);
-          _benchmarkStats = data['benchmark_stats'];
+          _portfolioSpots = _mapToSpots(results[0].curve);
+          _portfolioStats = results[0].stats;
+          _benchmarkSpots = _mapToSpots(results[1].curve);
+          _benchmarkStats = results[1].stats;
         });
-      } 
+      }
       // 3. SCENARIE: SAMMENLIGN MED ANDEN PORTEFØLJE
       else {
         // Find den anden porteføljes data
-        final compDoc = docs.firstWhere((d) => d.id == _selectedComparisonId);
-        final compData = compDoc.data() as Map<String, dynamic>;
-        final compPayload = _payloadFromPortfolio(compData);
+        final results = await Future.wait<_PerformanceResult>([
+          _requestSavedPortfolioPerformance(
+            selectedData,
+            finalStartStr,
+            finalEndStr,
+          ),
+          _requestSavedPortfolioPerformance(
+            comparisonData!,
+            finalStartStr,
+            finalEndStr,
+          ),
+        ]);
 
         // Send 2 API kald afsted samtidigt for at spare tid
-        final req1 = http.post(url, headers: {"Content-Type": "application/json"},
-          body: jsonEncode(_backtestRequestBody(
-            selectedPayload,
-            finalStartStr,
-            finalEndStr,
-            "SPY",
-          ))
-        );
-
-        final req2 = http.post(url, headers: {"Content-Type": "application/json"},
-          body: jsonEncode(_backtestRequestBody(
-            compPayload,
-            finalStartStr,
-            finalEndStr,
-            "SPY",
-          ))
-        );
-
-        final responses = await Future.wait([req1, req2]).timeout(const Duration(seconds: 125));
-        final dataMain = _decodeApiResponse(responses[0], "Selected portfolio backtest");
-        final dataComp = _decodeApiResponse(responses[1], "Comparison portfolio backtest");
-
         if (!mounted) return;
         setState(() {
-          _portfolioSpots = _mapToSpots(dataMain['portfolio']);
-          _portfolioStats = dataMain['portfolio_stats'];
+          _portfolioSpots = _mapToSpots(results[0].curve);
+          _portfolioStats = results[0].stats;
           
           // Hent 'portfolio' dataen fra kald nr 2, og sæt den som vores 'benchmark'!
-          _benchmarkSpots = _mapToSpots(dataComp['portfolio']);
-          _benchmarkStats = dataComp['portfolio_stats'];
+          _benchmarkSpots = _mapToSpots(results[1].curve);
+          _benchmarkStats = results[1].stats;
         });
       }
     } catch (e) {
@@ -947,4 +1264,14 @@ class _PortfolioPayload {
 
   final List<String> tickers;
   final Map<String, double> weights;
+}
+
+class _PerformanceResult {
+  const _PerformanceResult({
+    required this.curve,
+    required this.stats,
+  });
+
+  final List<dynamic> curve;
+  final Map<String, dynamic> stats;
 }
