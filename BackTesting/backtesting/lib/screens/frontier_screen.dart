@@ -1754,9 +1754,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
             ),
             const SizedBox(height: 5),
             const Text(
-              "IS and WF use different weight-selection processes. Their distance "
-              "combines hindsight, estimation error, regime changes, and rolling "
-              "reoptimization—not rebalancing alone.",
+              "Both IS and WF performance are measured throughout the evaluation period. "
+              "The difference is how portfolio weights are selected. IS weights are chosen "
+              "using data from the entire evaluation period, while WF weights are selected "
+              "using only data available before each rebalancing date. This illustrates how "
+              "in-sample evaluation can overstate an optimized portfolio's performance.",
               style: TextStyle(
                 fontSize: 10.5,
                 fontStyle: FontStyle.italic,
@@ -1836,14 +1838,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
     return Column(
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(12, 14, 12, 0),
-          child: Text(
-            "Ex-post In-Sample Frontier vs Rolling Walk-Forward Performance",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-        ),
+
         _buildMethodologySummary(),
         Expanded(
           child: Padding(
