@@ -1720,54 +1720,140 @@ class _FrontierScreenState extends State<FrontierScreen> {
     final reoptimizationLabel =
         (_resultReoptimizationLabel ?? "the selected interval").toLowerCase();
     final walkForwardDescription = _resultReoptimizationMonths == null
-        ? "WF — Not generated (rolling reoptimization was skipped)."
+        ? "Not generated because rolling reoptimization was not selected."
         : hasWalkForwardResults
-        ? "WF — Evaluated $evaluationRange using a $lookbackYears-year "
+        ? "Evaluated over $evaluationRange using a $lookbackYears-year "
               "lookback and reoptimized $reoptimizationLabel."
-        : "WF — Requested for $evaluationRange using a $lookbackYears-year "
-              "lookback and a $reoptimizationLabel reoptimization schedule, "
-              "but no walk-forward result is available.";
+        : "Requested for $evaluationRange using a $lookbackYears-year "
+              "lookback and a $reoptimizationLabel schedule, but no result "
+              "is available.";
+
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withOpacity(0.45),
-          borderRadius: BorderRadius.circular(8),
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.38),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withOpacity(0.55),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              "IS — Weights selected and measured over the complete displayed "
-              "period: $evaluationRange.",
-              style: const TextStyle(fontSize: 11.5),
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  "Evaluation methodology",
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 3),
-            Text(
-              walkForwardDescription,
-              style: const TextStyle(fontSize: 11.5),
+            const SizedBox(height: 11),
+            _buildMethodologyRow(
+              code: "IS",
+              title: "In-sample",
+              description:
+                  "Weights selected and measured over the complete displayed "
+                  "period: $evaluationRange.",
+              color: Colors.blueGrey,
             ),
-            const SizedBox(height: 5),
-            const Text(
+            const SizedBox(height: 9),
+            _buildMethodologyRow(
+              code: "WF",
+              title: "Walk-forward",
+              description: walkForwardDescription,
+              color: colorScheme.primary,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              child: Divider(height: 1, color: colorScheme.outlineVariant),
+            ),
+            Text(
               "Both IS and WF performance are measured throughout the evaluation period. "
               "The difference is how portfolio weights are selected. IS weights are chosen "
               "using data from the entire evaluation period, while WF weights are selected "
               "using only data available before each rebalancing date. This illustrates how "
               "in-sample evaluation can overstate an optimized portfolio's performance.",
               style: TextStyle(
-                fontSize: 10.5,
-                fontStyle: FontStyle.italic,
-                color: Colors.black54,
+                fontSize: 11,
+                height: 1.4,
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMethodologyRow({
+    required String code,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            code,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.3,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
