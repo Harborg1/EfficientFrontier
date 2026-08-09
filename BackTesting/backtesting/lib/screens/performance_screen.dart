@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:backtesting/services/authenticated_http.dart';
 
 class PerformanceScreen extends StatefulWidget {
   const PerformanceScreen({super.key});
@@ -323,9 +324,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     String endDate,
     String benchmark,
   ) async {
-    final response = await http.post(
+    final response = await AuthenticatedHttp.post(
       Uri.parse('https://efficientfrontier.onrender.com/backtest'),
-      headers: {"Content-Type": "application/json"},
       body: jsonEncode(
         _backtestRequestBody(payload, startDate, endDate, benchmark),
       ),
@@ -414,9 +414,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       return _performanceFromBacktest(response);
     }
 
-    final response = await http.post(
+    final response = await AuthenticatedHttp.post(
       Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
-      headers: {"Content-Type": "application/json"},
       body: jsonEncode(
         _rollingBacktestRequestBody(data, reportStartDate, endDate),
       ),
@@ -623,9 +622,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
     try {
       final payload = _payloadFromPortfolio(_selectedPortfolioData!);
-      final response = await http.post(
+      final response = await AuthenticatedHttp.post(
         url,
-        headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "tickers": payload.tickers,
           "weights": payload.weights,
@@ -665,9 +663,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
     try {
       final payload = _payloadFromPortfolio(_selectedPortfolioData!);
-      final response = await http.post(
+      final response = await AuthenticatedHttp.post(
         url,
-        headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "tickers": payload.tickers,
           "weights": payload.weights,

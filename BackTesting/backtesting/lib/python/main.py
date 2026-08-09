@@ -1,12 +1,17 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import firebase_admin
+from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
 import uvicorn
+import json
 import os
+from threading import Lock
 
 app = FastAPI()
 
@@ -16,6 +21,75 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_firebase_init_lock = Lock()
+
+
+def _firebase_app():
+    """Return the Firebase Admin app, initializing it lazily from Render."""
+    try:
+        return firebase_admin.get_app()
+    except ValueError:
+        with _firebase_init_lock:
+            try:
+                return firebase_admin.get_app()
+            except ValueError:
+                raw_credentials = os.environ.get(
+                    "FIREBASE_SERVICE_ACCOUNT_JSON"
+                )
+                if not raw_credentials:
+                    raise RuntimeError(
+                        "FIREBASE_SERVICE_ACCOUNT_JSON is not configured."
+                    )
+
+                try:
+                    service_account_info = json.loads(raw_credentials)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON."
+                    ) from exc
+
+                return firebase_admin.initialize_app(
+                    credentials.Certificate(service_account_info)
+                )
+
+
+def require_firebase_user(
+    authorization: Optional[str] = Header(default=None),
+) -> Dict:
+    """Verify a Firebase ID token supplied as an HTTP Bearer token."""
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        app_instance = _firebase_app()
+    except Exception as exc:
+        print(f"Firebase Admin initialization error: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is unavailable.",
+        ) from exc
+
+    try:
+        return firebase_auth.verify_id_token(token.strip(), app=app_instance)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired authentication token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
 # --- KONFIGURATION OG MODELLER ---
 TICKER_UNIVERSE = [
@@ -330,7 +404,7 @@ def _date_label(value) -> str:
 
 
 # --- ENDPOINT 5: Custom Portfolio Stats ---
-@app.post("/portfolio-stats")
+@app.post("/portfolio-stats", dependencies=[Depends(require_firebase_user)])
 async def calculate_portfolio_stats(data: PortfolioStatsRequest):
     try:
         # Download data for the requested period
@@ -391,7 +465,7 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ENDPOINT 1: OPTIMIZE (Træning) ---
-@app.get("/optimize")
+@app.get("/optimize", dependencies=[Depends(require_firebase_user)])
 
 def get_portfolio_data(
     tickers: str = "",
@@ -435,7 +509,7 @@ def get_portfolio_data(
     except ValueError as e:
         return {"error": str(e)}
 
-@app.post("/rolling-backtest")
+@app.post("/rolling-backtest", dependencies=[Depends(require_firebase_user)])
 async def rolling_backtest(data: RollingBacktestRequest):
     try:
         if data.lookback_years <= 0:
@@ -682,7 +756,7 @@ async def rolling_backtest(data: RollingBacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ENDPOINT 2: Backtest (Test / Out-of-Sample) ---
-@app.post("/backtest")
+@app.post("/backtest", dependencies=[Depends(require_firebase_user)])
 async def backtest(data: BacktestRequest):
     try:
         benchmark_ticker = data.benchmark.upper()
@@ -756,7 +830,7 @@ async def backtest(data: BacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ENDPOINT 3: Simulate ---
-@app.post("/simulate")
+@app.post("/simulate", dependencies=[Depends(require_firebase_user)])
 async def simulate_portfolio(data: SimulationRequest):
     try:
         # Henter historik for hele det valgte historiske vindue
@@ -833,7 +907,7 @@ async def simulate_portfolio(data: SimulationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/correlation")
+@app.post("/correlation", dependencies=[Depends(require_firebase_user)])
 async def portfolio_correlation(data: CorrelationRequest):
     try:
         df = yf.download(

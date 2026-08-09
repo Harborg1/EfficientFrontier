@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math'; // Added for min/max calculations
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:backtesting/screens/welcome_screen.dart';
+import 'package:backtesting/services/authenticated_http.dart';
 
 class FrontierScreen extends StatefulWidget {
   const FrontierScreen({super.key});
@@ -231,7 +231,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&t=${DateTime.now().millisecondsSinceEpoch}',
     );
 
-    final response = await http.get(url).timeout(const Duration(seconds: 2000));
+    final response = await AuthenticatedHttp.get(
+      url,
+    ).timeout(const Duration(seconds: 2000));
     if (response.statusCode != 200) {
       throw Exception(
         response.body.isNotEmpty
@@ -264,10 +266,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required bool useLedoitWolf,
     required double returnShrinkage,
   }) async {
-    final response = await http
+    final response = await AuthenticatedHttp
         .post(
           Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
-          headers: {'Content-Type': 'application/json'},
           body: json.encode({
             "tickers": tickers,
             "max_weight": maxWeight,
@@ -540,10 +541,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final url = Uri.parse(
         'https://efficientfrontier.onrender.com/portfolio-stats',
       );
-      final response = await http
+      final response = await AuthenticatedHttp
           .post(
             url,
-            headers: {'Content-Type': 'application/json'},
             body: json.encode({
               "tickers": selectedTickers,
               "weights": normalizedWeights,
