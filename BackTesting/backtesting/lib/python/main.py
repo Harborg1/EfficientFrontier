@@ -138,8 +138,7 @@ class RollingBacktestRequest(BaseModel):
     return_shrinkage: float = 0.0
 
 
-OPTIMIZATION_TRADING_DAYS = 250
-PERFORMANCE_TRADING_DAYS = 252
+TRADING_DAYS_PER_YEAR = 252
 OBJECTIVE_KEYS = ("max_sharpe", "min_vol", "max_sortino")
 
 
@@ -186,7 +185,7 @@ def _annual_returns(
     if return_shrinkage < 0 or return_shrinkage > 1:
         raise ValueError("return_shrinkage must be between 0.0 and 1.0.")
 
-    raw_returns = returns_daily.mean() * OPTIMIZATION_TRADING_DAYS
+    raw_returns = returns_daily.mean() * TRADING_DAYS_PER_YEAR
     if return_shrinkage == 0:
         return raw_returns.values
 
@@ -203,7 +202,7 @@ def _annual_covariance(
     use_ledoit_wolf: bool,
 ) -> np.ndarray:
     if not use_ledoit_wolf or len(returns_daily.columns) == 1:
-        return (returns_daily.cov() * OPTIMIZATION_TRADING_DAYS).values
+        return (returns_daily.cov() * TRADING_DAYS_PER_YEAR).values
 
     try:
         from sklearn.covariance import LedoitWolf
@@ -217,7 +216,7 @@ def _annual_covariance(
     except Exception as exc:
         raise ValueError(f"Ledoit-Wolf shrinkage failed: {exc}") from exc
 
-    return cov_daily * OPTIMIZATION_TRADING_DAYS
+    return cov_daily * TRADING_DAYS_PER_YEAR
 
 
 def _optimize_from_returns(
@@ -274,7 +273,7 @@ def _optimize_from_returns(
         downside_std = np.nanstd(downside_std, axis=0)
         chunk_mean = np.mean(chunk_daily, axis=0)
         port_sortino[start:end] = np.divide(
-            chunk_mean * np.sqrt(OPTIMIZATION_TRADING_DAYS),
+            chunk_mean * np.sqrt(TRADING_DAYS_PER_YEAR),
             downside_std,
             out=np.zeros_like(chunk_mean),
             where=(downside_std != 0) & ~np.isnan(downside_std)
@@ -375,14 +374,14 @@ def _performance_stats_from_daily(daily_rets: pd.Series) -> Dict[str, float]:
 
     cum_rets = (1 + daily_rets).cumprod()
     total_return = float(cum_rets.iloc[-1] - 1)
-    years = len(daily_rets) / PERFORMANCE_TRADING_DAYS
+    years = len(daily_rets) / TRADING_DAYS_PER_YEAR
     cagr = float((cum_rets.iloc[-1] ** (1 / years)) - 1) if years > 0 else 0.0
-    annualized_return = float(daily_rets.mean() * PERFORMANCE_TRADING_DAYS)
+    annualized_return = float(daily_rets.mean() * TRADING_DAYS_PER_YEAR)
     daily_std = daily_rets.std()
-    volatility = float(daily_std * np.sqrt(PERFORMANCE_TRADING_DAYS)) if not np.isnan(daily_std) else 0.0
-    sharpe = float((daily_rets.mean() / daily_std) * np.sqrt(PERFORMANCE_TRADING_DAYS)) if daily_std != 0 and not np.isnan(daily_std) else 0.0
+    volatility = float(daily_std * np.sqrt(TRADING_DAYS_PER_YEAR)) if not np.isnan(daily_std) else 0.0
+    sharpe = float((daily_rets.mean() / daily_std) * np.sqrt(TRADING_DAYS_PER_YEAR)) if daily_std != 0 and not np.isnan(daily_std) else 0.0
     downside_std = daily_rets[daily_rets < 0].std()
-    sortino = float((daily_rets.mean() / downside_std) * np.sqrt(PERFORMANCE_TRADING_DAYS)) if downside_std != 0 and not np.isnan(downside_std) else 0.0
+    sortino = float((daily_rets.mean() / downside_std) * np.sqrt(TRADING_DAYS_PER_YEAR)) if downside_std != 0 and not np.isnan(downside_std) else 0.0
 
     peak = cum_rets.cummax()
     drawdown = (cum_rets - peak) / peak
