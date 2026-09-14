@@ -250,20 +250,18 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required int rebalanceMonths,
     required int numPortfolios,
   }) async {
-    final response = await AuthenticatedHttp
-        .post(
-          Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
-          body: json.encode({
-            "tickers": tickers,
-            "max_weight": maxWeight,
-            "backtest_start_date": _formatDate(backtestStartDate),
-            "backtest_end_date": _formatDate(backtestEndDate),
-            "lookback_years": lookbackYears,
-            "rebalance_months": rebalanceMonths,
-            "num_portfolios": numPortfolios,
-          }),
-        )
-        .timeout(const Duration(seconds: 2000));
+    final response = await AuthenticatedHttp.post(
+      Uri.parse('https://efficientfrontier.onrender.com/rolling-backtest'),
+      body: json.encode({
+        "tickers": tickers,
+        "max_weight": maxWeight,
+        "backtest_start_date": _formatDate(backtestStartDate),
+        "backtest_end_date": _formatDate(backtestEndDate),
+        "lookback_years": lookbackYears,
+        "rebalance_months": rebalanceMonths,
+        "num_portfolios": numPortfolios,
+      }),
+    ).timeout(const Duration(seconds: 2000));
 
     final decoded = json.decode(response.body);
     if (response.statusCode != 200) {
@@ -376,8 +374,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
               rawNextAllocations['portfolios'] is Map) {
             rollingNextAllocations = {
               'as_of_date': rawNextAllocations['as_of_date'],
-              'training_start_date':
-                  rawNextAllocations['training_start_date'],
+              'training_start_date': rawNextAllocations['training_start_date'],
               'training_end_date': rawNextAllocations['training_end_date'],
               'portfolios': Map<String, dynamic>.from(
                 rawNextAllocations['portfolios'] as Map,
@@ -517,17 +514,15 @@ class _FrontierScreenState extends State<FrontierScreen> {
       final url = Uri.parse(
         'https://efficientfrontier.onrender.com/portfolio-stats',
       );
-      final response = await AuthenticatedHttp
-          .post(
-            url,
-            body: json.encode({
-              "tickers": selectedTickers,
-              "weights": normalizedWeights,
-              "start_date": startStr,
-              "end_date": endStr,
-            }),
-          )
-          .timeout(const Duration(seconds: 30));
+      final response = await AuthenticatedHttp.post(
+        url,
+        body: json.encode({
+          "tickers": selectedTickers,
+          "weights": normalizedWeights,
+          "start_date": startStr,
+          "end_date": endStr,
+        }),
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final stats = json.decode(response.body);
@@ -631,7 +626,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       title: const Text("SOR-IS Ex-post Max Sortino"),
                       controlAffinity: ListTileControlAffinity.leading,
                     ),
-                    if (rebalanceRuns.isNotEmpty && nextAllocations != null) ...[
+                    if (rebalanceRuns.isNotEmpty &&
+                        nextAllocations != null) ...[
                       const Divider(),
                       CheckboxListTile(
                         value: selectedTypes.contains('Rebalanced Max Sharpe'),
@@ -706,11 +702,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           _lookbackYearsForTimeframe(_selectedTimeframe);
       final startDate =
           _resultEvaluationStartDate ??
-          DateTime(
-            endDate.year - lookbackYears,
-            endDate.month,
-            endDate.day,
-          );
+          DateTime(endDate.year - lookbackYears, endDate.month, endDate.day);
       final maxWeight = _resultMaxWeight ?? _selectedMaxWeight;
       final numPortfolios = _resultNumPortfolios ?? _selectedPortfolios;
       final rebalanceMonths =
@@ -767,6 +759,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'sharpe': maxSharpe!['sharpe'],
           'alpha': maxSharpe!['alpha'],
           'beta': maxSharpe!['beta'],
+          'max_drawdown': maxSharpe!['max_drawdown'],
           'weights': weights,
           'train_start_date': startStr,
           'train_end_date': endStr,
@@ -785,6 +778,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'sharpe': minVol!['sharpe'],
           'alpha': minVol!['alpha'],
           'beta': minVol!['beta'],
+          'max_drawdown': minVol!['max_drawdown'],
           'weights': weights,
           'train_start_date': startStr,
           'train_end_date': endStr,
@@ -803,6 +797,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'sharpe': maxSortino!['sharpe'],
           'alpha': maxSortino!['alpha'],
           'beta': maxSortino!['beta'],
+          'max_drawdown': maxSortino!['max_drawdown'],
           'sortino': maxSortino!['sortino'],
           'weights': weights,
           'train_start_date': startStr,
@@ -1262,8 +1257,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       'rebalance_strategy': true,
       'rolling_objective': portfolioKey,
       'weights_as_of_date': terminalAllocations['as_of_date'],
-      'weights_training_start_date':
-          terminalAllocations['training_start_date'],
+      'weights_training_start_date': terminalAllocations['training_start_date'],
       'weights_training_end_date': terminalAllocations['training_end_date'],
     };
 
@@ -1315,6 +1309,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       sharpe: _portfolioMetric(portfolio, 'sharpe'),
       alpha: _portfolioMetric(portfolio, 'alpha'),
       beta: _portfolioMetric(portfolio, 'beta'),
+      maxDrawdown: _portfolioMetric(portfolio, 'max_drawdown'),
     );
   }
 
@@ -1338,6 +1333,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       sharpe: _portfolioMetric(summary, 'sharpe'),
       alpha: _portfolioMetric(summary, 'alpha'),
       beta: _portfolioMetric(summary, 'beta'),
+      maxDrawdown: _portfolioMetric(summary, 'max_drawdown'),
     );
   }
 
@@ -1685,11 +1681,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: colorScheme.primary,
-                ),
+                Icon(Icons.info_outline, size: 16, color: colorScheme.primary),
                 const SizedBox(width: 7),
                 Text(
                   "Evaluation methodology",
@@ -1862,7 +1854,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
     return Column(
       children: [
-
         _buildMethodologySummary(),
         Expanded(
           child: Padding(
@@ -2110,9 +2101,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   void _showMarkerDetailsDialog(List<_ChartMarker> markers) {
     String ratio(double? value) => value?.toStringAsFixed(2) ?? "N/A";
-    String percentage(double? value) => value == null
-        ? "N/A"
-        : "${(value * 100).toStringAsFixed(2)}%";
+    String percentage(double? value) =>
+        value == null ? "N/A" : "${(value * 100).toStringAsFixed(2)}%";
 
     showDialog<void>(
       context: context,
@@ -2121,7 +2111,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         content: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: 600,
+            width: 740,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(
@@ -2165,6 +2155,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       Expanded(
                         child: Text(
                           "Beta: ${ratio(marker.beta)}",
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          "MDD: ${percentage(marker.maxDrawdown)}",
                           maxLines: 1,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -2404,6 +2401,7 @@ class _ChartMarker {
     required this.sharpe,
     required this.alpha,
     required this.beta,
+    required this.maxDrawdown,
   });
 
   final double x;
@@ -2414,4 +2412,5 @@ class _ChartMarker {
   final double? sharpe;
   final double? alpha;
   final double? beta;
+  final double? maxDrawdown;
 }

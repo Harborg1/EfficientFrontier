@@ -265,6 +265,17 @@ def _capm_metrics(
     }
 
 
+def _max_drawdown(daily_returns: pd.Series) -> float:
+    daily_returns = pd.Series(daily_returns).dropna()
+    if daily_returns.empty:
+        return 0.0
+
+    cumulative_returns = (1.0 + daily_returns).cumprod()
+    running_peak = cumulative_returns.cummax()
+    drawdown = cumulative_returns / running_peak - 1.0
+    return float(drawdown.min())
+
+
 def _optimize_from_returns(
     returns_daily: pd.DataFrame,
     max_weight: float,
@@ -400,6 +411,7 @@ def _optimize_from_returns(
             result[portfolio_key].update(
                 _capm_metrics(portfolio_daily, market_daily, risk_free_daily)
             )
+            result[portfolio_key]["max_drawdown"] = _max_drawdown(portfolio_daily)
 
     return result
 
@@ -458,9 +470,7 @@ def _performance_stats_from_daily(daily_rets: pd.Series) -> Dict[str, float]:
     downside_std = daily_rets[daily_rets < 0].std()
     sortino = float((daily_rets.mean() / downside_std) * np.sqrt(TRADING_DAYS_PER_YEAR)) if downside_std != 0 and not np.isnan(downside_std) else 0.0
 
-    peak = cum_rets.cummax()
-    drawdown = (cum_rets - peak) / peak
-    max_drawdown = float(drawdown.min())
+    max_drawdown = _max_drawdown(daily_rets)
 
     return {
         "total_return": total_return,

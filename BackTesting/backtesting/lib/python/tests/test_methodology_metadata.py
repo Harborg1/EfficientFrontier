@@ -251,6 +251,13 @@ class CapmMetricTests(unittest.TestCase):
         expected = (1.05 ** (1 / 252)) - 1
         self.assertTrue(np.allclose(risk_free_daily.to_numpy(), expected))
 
+    def test_max_drawdown_uses_the_largest_peak_to_trough_decline(self):
+        daily_returns = pd.Series([0.10, -0.20, 0.05])
+
+        max_drawdown = api._max_drawdown(daily_returns)
+
+        self.assertAlmostEqual(max_drawdown, -0.20)
+
 
 if __name__ == "__main__":
     unittest.main()
