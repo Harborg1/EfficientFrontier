@@ -7,7 +7,7 @@ from firebase_admin import credentials
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 import uvicorn
 import json
 import os
@@ -134,12 +134,12 @@ class RollingBacktestRequest(BaseModel):
     lookback_years: int = 5
     rebalance_months: int = 6
     num_portfolios: int = 20000
-    use_ledoit_wolf: bool = False
-    return_shrinkage: float = 0.0
 
 
 TRADING_DAYS_PER_YEAR = 252
 OBJECTIVE_KEYS = ("max_sharpe", "min_vol", "max_sortino")
+MARKET_TICKER = "SPY"
+RISK_FREE_TICKER = "^IRX"
 
 
 def _selected_tickers_from_string(tickers: str) -> List[str]:
@@ -168,55 +168,101 @@ def _adj_close_table(downloaded_data, selected: List[str]) -> pd.DataFrame:
     if isinstance(table, pd.Series):
         table = table.to_frame(name=selected[0] if selected else "asset")
 
-    return table.dropna(axis=1, how='all').dropna()
+    return table.dropna(axis=1, how='all')
 
 
-def _model_settings(use_ledoit_wolf: bool, return_shrinkage: float) -> Dict:
-    return {
-        "use_ledoit_wolf": use_ledoit_wolf,
-        "return_shrinkage": return_shrinkage,
-    }
+def _annual_returns(returns_daily: pd.DataFrame) -> np.ndarray:
+    return (returns_daily.mean() * TRADING_DAYS_PER_YEAR).values
 
 
-def _annual_returns(
-    returns_daily: pd.DataFrame,
-    return_shrinkage: float,
-) -> np.ndarray:
-    if return_shrinkage < 0 or return_shrinkage > 1:
-        raise ValueError("return_shrinkage must be between 0.0 and 1.0.")
-
-    raw_returns = returns_daily.mean() * TRADING_DAYS_PER_YEAR
-    if return_shrinkage == 0:
-        return raw_returns.values
-
-    target_return = raw_returns.mean()
-    shrunk_returns = (
-        (1 - return_shrinkage) * raw_returns
-        + return_shrinkage * target_return
-    )
-    return shrunk_returns.values
+def _annual_covariance(returns_daily: pd.DataFrame) -> np.ndarray:
+    return (returns_daily.cov() * TRADING_DAYS_PER_YEAR).values
 
 
-def _annual_covariance(
-    returns_daily: pd.DataFrame,
-    use_ledoit_wolf: bool,
-) -> np.ndarray:
-    if not use_ledoit_wolf or len(returns_daily.columns) == 1:
-        return (returns_daily.cov() * TRADING_DAYS_PER_YEAR).values
-
-    try:
-        from sklearn.covariance import LedoitWolf
-    except ImportError as exc:
+def _factor_returns(price_table: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+    missing = [
+        ticker
+        for ticker in (MARKET_TICKER, RISK_FREE_TICKER)
+        if ticker not in price_table.columns
+    ]
+    if missing:
         raise ValueError(
-            "Ledoit-Wolf shrinkage requires scikit-learn to be installed."
-        ) from exc
+            f"Could not retrieve factor data for: {', '.join(missing)}."
+        )
 
-    try:
-        cov_daily = LedoitWolf().fit(returns_daily.values).covariance_
-    except Exception as exc:
-        raise ValueError(f"Ledoit-Wolf shrinkage failed: {exc}") from exc
+    market_prices = price_table[MARKET_TICKER].dropna()
+    market_daily = market_prices.pct_change(fill_method=None).dropna()
 
-    return cov_daily * TRADING_DAYS_PER_YEAR
+    annual_yield = price_table[RISK_FREE_TICKER].dropna().astype(float) / 100.0
+    if annual_yield.empty:
+        raise ValueError(f"Could not retrieve risk-free-rate data for {RISK_FREE_TICKER}.")
+    if (annual_yield <= -1.0).any():
+        raise ValueError(f"{RISK_FREE_TICKER} contained an invalid annual yield.")
+
+    risk_free_daily = (1.0 + annual_yield).pow(1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    risk_free_daily.name = "risk_free"
+    return market_daily, risk_free_daily
+
+
+def _align_risk_free_daily(
+    risk_free_daily: pd.Series,
+    target_index: pd.Index,
+) -> pd.Series:
+    combined_index = risk_free_daily.index.union(target_index).sort_values()
+    aligned = risk_free_daily.reindex(combined_index).ffill().reindex(target_index)
+    return aligned
+
+
+def _capm_metrics(
+    portfolio_daily: pd.Series,
+    market_daily: pd.Series,
+    risk_free_daily: pd.Series,
+) -> Dict[str, float]:
+    aligned = pd.concat(
+        [
+            pd.Series(portfolio_daily, name="portfolio"),
+            pd.Series(market_daily, name="market"),
+        ],
+        axis=1,
+        join="inner",
+    ).replace([np.inf, -np.inf], np.nan).dropna()
+
+    if len(aligned) < 2:
+        raise ValueError("Not enough aligned portfolio and SPY returns for CAPM regression.")
+
+    aligned["risk_free"] = _align_risk_free_daily(
+        risk_free_daily,
+        aligned.index,
+    )
+    aligned = aligned.dropna()
+    if len(aligned) < 2:
+        raise ValueError("Not enough aligned ^IRX observations for CAPM regression.")
+
+    portfolio_excess = aligned["portfolio"] - aligned["risk_free"]
+    market_excess = aligned["market"] - aligned["risk_free"]
+    design_matrix = np.column_stack(
+        [np.ones(len(market_excess)), market_excess.to_numpy(dtype=float)]
+    )
+    if np.linalg.matrix_rank(design_matrix) < 2:
+        raise ValueError("SPY excess returns had no variance for CAPM regression.")
+
+    alpha_daily, beta = np.linalg.lstsq(
+        design_matrix,
+        portfolio_excess.to_numpy(dtype=float),
+        rcond=None,
+    )[0]
+    volatility_daily = aligned["portfolio"].std()
+    sharpe = (
+        portfolio_excess.mean() / volatility_daily * np.sqrt(TRADING_DAYS_PER_YEAR)
+        if volatility_daily != 0 and not np.isnan(volatility_daily)
+        else 0.0
+    )
+
+    return {
+        "sharpe": float(sharpe),
+        "alpha": float(alpha_daily * TRADING_DAYS_PER_YEAR),
+        "beta": float(beta),
+    }
 
 
 def _optimize_from_returns(
@@ -224,8 +270,8 @@ def _optimize_from_returns(
     max_weight: float,
     num_portfolios: int,
     include_scatter: bool = True,
-    use_ledoit_wolf: bool = False,
-    return_shrinkage: float = 0.0,
+    market_daily: Optional[pd.Series] = None,
+    risk_free_daily: Optional[pd.Series] = None,
 ) -> Dict:
     returns_daily = returns_daily.dropna(axis=1, how='all').dropna()
     selected = list(returns_daily.columns)
@@ -236,8 +282,8 @@ def _optimize_from_returns(
     if num_assets * max_weight < 1.0:
         raise ValueError(f"Kan ikke summere til 100% med {num_assets} aktier og et max på {max_weight*100}%.")
 
-    returns_annual = _annual_returns(returns_daily, return_shrinkage)
-    cov_annual = _annual_covariance(returns_daily, use_ledoit_wolf)
+    returns_annual = _annual_returns(returns_daily)
+    cov_annual = _annual_covariance(returns_daily)
 
     valid_weights_list = []
     batch_size = 50000
@@ -284,8 +330,18 @@ def _optimize_from_returns(
         portfolio[symbol+' weight'] = valid_weights[:, counter]
 
     df = pd.DataFrame(portfolio)
+    annual_risk_free = 0.0
+    if risk_free_daily is not None:
+        aligned_risk_free = _align_risk_free_daily(
+            risk_free_daily,
+            returns_daily.index,
+        ).dropna()
+        if aligned_risk_free.empty:
+            raise ValueError("No ^IRX observations aligned with the optimization period.")
+        annual_risk_free = float(aligned_risk_free.mean() * TRADING_DAYS_PER_YEAR)
+
     df['Sharpe'] = np.divide(
-        df['Returns'],
+        df['Returns'] - annual_risk_free,
         df['Volatility'],
         out=np.zeros(len(df), dtype=float),
         where=df['Volatility'] != 0,
@@ -325,6 +381,25 @@ def _optimize_from_returns(
 
     if include_scatter:
         result["scatter_points"] = [{"x": float(v), "y": float(r)} for v, r in zip(df['Volatility'], df['Returns'])]
+
+    if market_daily is not None and risk_free_daily is not None:
+        selected_portfolios = {
+            "max_sharpe": max_sharpe_port,
+            "min_vol": min_vol_port,
+            "max_sortino": max_sortino_port,
+        }
+        for portfolio_key, portfolio_row in selected_portfolios.items():
+            weights = np.array(
+                [portfolio_row[symbol + ' weight'] for symbol in selected],
+                dtype=float,
+            )
+            portfolio_daily = pd.Series(
+                returns_daily[selected].to_numpy().dot(weights),
+                index=returns_daily.index,
+            )
+            result[portfolio_key].update(
+                _capm_metrics(portfolio_daily, market_daily, risk_free_daily)
+            )
 
     return result
 
@@ -471,9 +546,7 @@ def get_portfolio_data(
     max_weight: float = 0.30,
     start_date: str = "2015-01-01",
     end_date: str = "2019-12-31",
-    num_portfolios: int = 20000,
-    use_ledoit_wolf: bool = False,
-    return_shrinkage: float = 0.0
+    num_portfolios: int = 20000
 ):
     selected = _selected_tickers_from_string(tickers)
 
@@ -481,19 +554,26 @@ def get_portfolio_data(
         return {"error": f"Kan ikke summere til 100% med {len(selected)} aktier og et max på {max_weight*100}%."}
 
     try:
-        data = yf.download(selected, start=start_date, end=end_date, auto_adjust=False)
-        table = _adj_close_table(data, selected)
-        returns_daily = table.pct_change().dropna()
+        download_tickers = list(dict.fromkeys(selected + [MARKET_TICKER, RISK_FREE_TICKER]))
+        data = yf.download(
+            download_tickers,
+            start=start_date,
+            end=end_date,
+            auto_adjust=False,
+        )
+        full_price_table = _adj_close_table(data, download_tickers)
+        valid_tickers = [ticker for ticker in selected if ticker in full_price_table.columns]
+        if not valid_tickers:
+            raise ValueError("None of the selected tickers had valid price data.")
+        asset_prices = full_price_table[valid_tickers].dropna()
+        returns_daily = asset_prices.pct_change(fill_method=None).dropna()
+        market_daily, risk_free_daily = _factor_returns(full_price_table)
         result = _optimize_from_returns(
             returns_daily,
             max_weight,
             num_portfolios,
-            use_ledoit_wolf=use_ledoit_wolf,
-            return_shrinkage=return_shrinkage,
-        )
-        result["model_settings"] = _model_settings(
-            use_ledoit_wolf,
-            return_shrinkage,
+            market_daily=market_daily,
+            risk_free_daily=risk_free_daily,
         )
         result["methodology"] = {
             "evaluation_type": "ex_post_in_sample",
@@ -503,6 +583,12 @@ def get_portfolio_data(
             "evaluation_start_date": _date_label(start_date),
             "evaluation_end_date": _date_label(end_date),
             "uses_same_period_for_selection_and_evaluation": True,
+        }
+        result["factor_model"] = {
+            "market": MARKET_TICKER,
+            "risk_free_rate": RISK_FREE_TICKER,
+            "regression_frequency": "daily",
+            "alpha_frequency": "annualized",
         }
         return result
     except ValueError as e:
@@ -515,9 +601,6 @@ async def rolling_backtest(data: RollingBacktestRequest):
             raise HTTPException(status_code=400, detail="lookback_years must be greater than 0.")
         if data.rebalance_months <= 0:
             raise HTTPException(status_code=400, detail="rebalance_months must be greater than 0.")
-        if data.return_shrinkage < 0 or data.return_shrinkage > 1:
-            raise HTTPException(status_code=400, detail="return_shrinkage must be between 0.0 and 1.0.")
-
         selected = _selected_tickers_from_list(data.tickers)
         if not selected:
             raise HTTPException(status_code=400, detail="Please provide at least one ticker.")
@@ -544,14 +627,17 @@ async def rolling_backtest(data: RollingBacktestRequest):
             )
 
         download_start = backtest_start - pd.DateOffset(years=data.lookback_years)
+        download_tickers = list(dict.fromkeys(selected + [MARKET_TICKER, RISK_FREE_TICKER]))
         raw_data = yf.download(
-            selected,
+            download_tickers,
             start=_date_label(download_start),
             end=_date_label(backtest_end),
             auto_adjust=False,
         )
-        price_table = _adj_close_table(raw_data, selected)
-        valid_tickers = list(price_table.columns)
+        full_price_table = _adj_close_table(raw_data, download_tickers)
+        valid_tickers = [ticker for ticker in selected if ticker in full_price_table.columns]
+        price_table = full_price_table[valid_tickers]
+        market_daily, risk_free_daily = _factor_returns(full_price_table)
 
         if len(valid_tickers) * data.max_weight < 1.0:
             raise HTTPException(
@@ -592,8 +678,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
                 data.max_weight,
                 data.num_portfolios,
                 include_scatter=False,
-                use_ledoit_wolf=data.use_ledoit_wolf,
-                return_shrinkage=data.return_shrinkage,
+                market_daily=market_daily,
+                risk_free_daily=risk_free_daily,
             )
 
             run = {
@@ -660,8 +746,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
             data.max_weight,
             data.num_portfolios,
             include_scatter=False,
-            use_ledoit_wolf=data.use_ledoit_wolf,
-            return_shrinkage=data.return_shrinkage,
+            market_daily=market_daily,
+            risk_free_daily=risk_free_daily,
         )
         next_portfolios = {}
         for portfolio_key in OBJECTIVE_KEYS:
@@ -697,6 +783,9 @@ async def rolling_backtest(data: RollingBacktestRequest):
             full_daily = pd.concat(daily_parts).sort_index()
             report_daily = full_daily.loc[full_daily.index >= report_start]
             stats = _performance_stats_from_daily(report_daily)
+            stats.update(
+                _capm_metrics(report_daily, market_daily, risk_free_daily)
+            )
             equity_curve = (1 + report_daily).cumprod() * 100
             latest_weights = strategy_state[portfolio_key]["latest_weights"]
 
@@ -709,6 +798,8 @@ async def rolling_backtest(data: RollingBacktestRequest):
                 "total_return": stats["total_return"],
                 "volatility": stats["volatility"],
                 "sharpe": stats["sharpe"],
+                "alpha": stats["alpha"],
+                "beta": stats["beta"],
                 "sortino": stats["sortino"],
                 "max_drawdown": stats["max_drawdown"],
                 "weights": latest_weights,
@@ -736,10 +827,12 @@ async def rolling_backtest(data: RollingBacktestRequest):
                 "reoptimized_each_window": True,
                 "training_data_cutoff": "strictly_before_each_rebalance_date",
             },
-            "model_settings": _model_settings(
-                data.use_ledoit_wolf,
-                data.return_shrinkage,
-            ),
+            "factor_model": {
+                "market": MARKET_TICKER,
+                "risk_free_rate": RISK_FREE_TICKER,
+                "regression_frequency": "daily",
+                "alpha_frequency": "annualized",
+            },
             "valid_tickers": valid_tickers,
             "runs": runs,
             "summary": summary,

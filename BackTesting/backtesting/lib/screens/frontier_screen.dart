@@ -66,8 +66,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
   String _selectedTimeframe = '5 YR';
-  bool _useLedoitWolf = false;
-  double _selectedReturnShrinkage = 0.0;
 
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
@@ -82,12 +80,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
   String _selectedRebalanceCode = 'skip';
   int _customRebalanceMonths = 9;
   final List<String> _timeframeOptions = ['1 YR', '3 YR', '5 YR', '10 YR'];
-  final List<_ReturnShrinkageChoice> _returnShrinkageChoices = const [
-    _ReturnShrinkageChoice(value: 0.0, label: 'None'),
-    _ReturnShrinkageChoice(value: 0.25, label: 'Light'),
-    _ReturnShrinkageChoice(value: 0.5, label: 'Medium'),
-    _ReturnShrinkageChoice(value: 0.75, label: 'Strong'),
-  ];
 
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -104,8 +96,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
   String? _resultReoptimizationLabel;
   double? _resultMaxWeight;
   int? _resultNumPortfolios;
-  bool? _resultUseLedoitWolf;
-  double? _resultReturnShrinkage;
 
   bool isLoading = false;
   bool showSimulation = false;
@@ -216,8 +206,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required DateTime startDate,
     required DateTime endDate,
     required int numPortfolios,
-    required bool useLedoitWolf,
-    required double returnShrinkage,
   }) async {
     final url = Uri.parse(
       'https://efficientfrontier.onrender.com/optimize'
@@ -226,8 +214,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
       '&start_date=${_formatDate(startDate)}'
       '&end_date=${_formatDate(endDate)}'
       '&num_portfolios=$numPortfolios'
-      '&use_ledoit_wolf=$useLedoitWolf'
-      '&return_shrinkage=$returnShrinkage'
       '&t=${DateTime.now().millisecondsSinceEpoch}',
     );
 
@@ -263,8 +249,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
     required int lookbackYears,
     required int rebalanceMonths,
     required int numPortfolios,
-    required bool useLedoitWolf,
-    required double returnShrinkage,
   }) async {
     final response = await AuthenticatedHttp
         .post(
@@ -277,8 +261,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
             "lookback_years": lookbackYears,
             "rebalance_months": rebalanceMonths,
             "num_portfolios": numPortfolios,
-            "use_ledoit_wolf": useLedoitWolf,
-            "return_shrinkage": returnShrinkage,
           }),
         )
         .timeout(const Duration(seconds: 2000));
@@ -366,8 +348,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
         startDate: startDate,
         endDate: endDate,
         numPortfolios: _selectedPortfolios,
-        useLedoitWolf: _useLedoitWolf,
-        returnShrinkage: _selectedReturnShrinkage,
       );
       List<Map<String, dynamic>> rollingRuns = [];
       Map<String, dynamic>? rollingSummary;
@@ -384,8 +364,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
             lookbackYears: lookbackYears,
             rebalanceMonths: _selectedRebalanceMonths!,
             numPortfolios: _selectedPortfolios,
-            useLedoitWolf: _useLedoitWolf,
-            returnShrinkage: _selectedReturnShrinkage,
           );
           rollingRuns = (rollingData['runs'] as List)
               .map((run) => Map<String, dynamic>.from(run as Map))
@@ -449,8 +427,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
         _resultReoptimizationLabel = _selectedRebalanceLabel;
         _resultMaxWeight = _selectedMaxWeight;
         _resultNumPortfolios = _selectedPortfolios;
-        _resultUseLedoitWolf = _useLedoitWolf;
-        _resultReturnShrinkage = _selectedReturnShrinkage;
         isLoading = false;
       });
 
@@ -737,9 +713,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
           );
       final maxWeight = _resultMaxWeight ?? _selectedMaxWeight;
       final numPortfolios = _resultNumPortfolios ?? _selectedPortfolios;
-      final useLedoitWolf = _resultUseLedoitWolf ?? _useLedoitWolf;
-      final returnShrinkage =
-          _resultReturnShrinkage ?? _selectedReturnShrinkage;
       final rebalanceMonths =
           _resultReoptimizationMonths ?? _selectedRebalanceMonths;
       final rebalanceLabel =
@@ -754,8 +727,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'optimization_portfolios': numPortfolios,
         'optimization_timeframe': _selectedTimeframe,
         'optimization_lookback_years': lookbackYears,
-        'optimization_use_ledoit_wolf': useLedoitWolf,
-        'optimization_return_shrinkage': returnShrinkage,
       };
       final rebalanceSimulationFields = {
         ...baseOptimizationFields,
@@ -764,8 +735,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'lookback_years': lookbackYears,
         'rebalance_interval_months': rebalanceMonths,
         'rebalance_label': rebalanceLabel,
-        'use_ledoit_wolf': useLedoitWolf,
-        'return_shrinkage': returnShrinkage,
       };
 
       void queueRebalancedPortfolio({
@@ -796,6 +765,8 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'return': maxSharpe!['y'],
           'volatility': maxSharpe!['x'],
           'sharpe': maxSharpe!['sharpe'],
+          'alpha': maxSharpe!['alpha'],
+          'beta': maxSharpe!['beta'],
           'weights': weights,
           'train_start_date': startStr,
           'train_end_date': endStr,
@@ -811,6 +782,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'tickers': weights.keys.toList(),
           'return': minVol!['y'],
           'volatility': minVol!['x'],
+          'sharpe': minVol!['sharpe'],
+          'alpha': minVol!['alpha'],
+          'beta': minVol!['beta'],
           'weights': weights,
           'train_start_date': startStr,
           'train_end_date': endStr,
@@ -826,6 +800,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
           'tickers': weights.keys.toList(),
           'return': maxSortino!['y'],
           'volatility': maxSortino!['x'],
+          'sharpe': maxSortino!['sharpe'],
+          'alpha': maxSortino!['alpha'],
+          'beta': maxSortino!['beta'],
           'sortino': maxSortino!['sortino'],
           'weights': weights,
           'train_start_date': startStr,
@@ -912,8 +889,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 _buildTickerArea(),
                 const SizedBox(height: 15),
                 _buildSettingsRow(),
-                const SizedBox(height: 10),
-                _buildModelSettingsRow(isWide),
                 const SizedBox(height: 10),
                 _buildRebalanceSettings(isWide),
                 const SizedBox(height: 10),
@@ -1002,60 +977,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
                   const SizedBox(height: 8),
                   customInput,
                 ],
-              ],
-            ),
-    );
-  }
-
-  Widget _buildModelSettingsRow(bool isWide) {
-    final ledoitWolfDropdown = DropdownButtonFormField<bool>(
-      decoration: const InputDecoration(
-        labelText: "Ledoit-Wolf Shrinkage",
-        border: OutlineInputBorder(),
-        isDense: true,
-      ),
-      value: _useLedoitWolf,
-      items: const [
-        DropdownMenuItem(value: false, child: Text("No")),
-        DropdownMenuItem(value: true, child: Text("Yes")),
-      ],
-      onChanged: (value) {
-        if (value == null) return;
-        setState(() => _useLedoitWolf = value);
-      },
-    );
-
-    final returnShrinkageDropdown = DropdownButtonFormField<double>(
-      decoration: const InputDecoration(
-        labelText: "Return Shrinkage",
-        border: OutlineInputBorder(),
-        isDense: true,
-      ),
-      value: _selectedReturnShrinkage,
-      items: _returnShrinkageChoices.map((choice) {
-        return DropdownMenuItem(value: choice.value, child: Text(choice.label));
-      }).toList(),
-      onChanged: (value) {
-        if (value == null) return;
-        setState(() => _selectedReturnShrinkage = value);
-      },
-    );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: isWide
-          ? Row(
-              children: [
-                Expanded(child: ledoitWolfDropdown),
-                const SizedBox(width: 8),
-                Expanded(child: returnShrinkageDropdown),
-              ],
-            )
-          : Column(
-              children: [
-                ledoitWolfDropdown,
-                const SizedBox(height: 8),
-                returnShrinkageDropdown,
               ],
             ),
     );
@@ -1349,6 +1270,12 @@ class _FrontierScreenState extends State<FrontierScreen> {
     if (summary['sharpe'] != null) {
       data['sharpe'] = summary['sharpe'];
     }
+    if (summary['alpha'] != null) {
+      data['alpha'] = summary['alpha'];
+    }
+    if (summary['beta'] != null) {
+      data['beta'] = summary['beta'];
+    }
     if (summary['sortino'] != null) {
       data['sortino'] = summary['sortino'];
     }
@@ -1368,6 +1295,11 @@ class _FrontierScreenState extends State<FrontierScreen> {
     return data;
   }
 
+  double? _portfolioMetric(Map<String, dynamic> portfolio, String key) {
+    final value = portfolio[key];
+    return value is num ? value.toDouble() : null;
+  }
+
   _ChartMarker _markerFromPortfolio({
     required Map<String, dynamic> portfolio,
     required String label,
@@ -1380,6 +1312,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       label: label,
       color: color,
       evaluationType: evaluationType,
+      sharpe: _portfolioMetric(portfolio, 'sharpe'),
+      alpha: _portfolioMetric(portfolio, 'alpha'),
+      beta: _portfolioMetric(portfolio, 'beta'),
     );
   }
 
@@ -1400,6 +1335,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       label: label,
       color: color,
       evaluationType: _EvaluationType.rollingWalkForward,
+      sharpe: _portfolioMetric(summary, 'sharpe'),
+      alpha: _portfolioMetric(summary, 'alpha'),
+      beta: _portfolioMetric(summary, 'beta'),
     );
   }
 
@@ -2171,60 +2109,71 @@ class _FrontierScreenState extends State<FrontierScreen> {
   }
 
   void _showMarkerDetailsDialog(List<_ChartMarker> markers) {
-    String evaluationLabel(_EvaluationType evaluationType) {
-      return evaluationType == _EvaluationType.inSampleHindsight
-          ? "Ex-post in-sample"
-          : "Rolling walk-forward out-of-sample";
-    }
-
-    String percentage(double value) => "${(value * 100).toStringAsFixed(2)}%";
+    String ratio(double? value) => value?.toStringAsFixed(2) ?? "N/A";
+    String percentage(double? value) => value == null
+        ? "N/A"
+        : "${(value * 100).toStringAsFixed(2)}%";
 
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Portfolio marker details"),
-        content: SizedBox(
-          width: 420,
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: markers.length,
-            separatorBuilder: (_, __) => const Divider(height: 16),
-            itemBuilder: (context, index) {
-              final marker = markers[index];
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: _evaluationMarkerGlyph(
-                      marker.color,
-                      marker.evaluationType,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+        content: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: 600,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(
+                markers.isEmpty ? 0 : markers.length * 2 - 1,
+                (index) {
+                  if (index.isOdd) {
+                    return const Divider(height: 16);
+                  }
+
+                  final marker = markers[index ~/ 2];
+                  return Row(
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        child: _evaluationMarkerGlyph(
+                          marker.color,
+                          marker.evaluationType,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 72,
+                        child: Text(
                           marker.label,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        Text(
-                          evaluationLabel(marker.evaluationType),
+                      ),
+                      Expanded(
+                        child: Text(
+                          "Sharpe: ${ratio(marker.sharpe)}",
+                          maxLines: 1,
                           style: const TextStyle(fontSize: 12),
                         ),
-                        Text(
-                          "Annual return: ${percentage(marker.y)}  •  "
-                          "Annual volatility: ${percentage(marker.x)}",
+                      ),
+                      Expanded(
+                        child: Text(
+                          "Alpha: ${percentage(marker.alpha)}",
+                          maxLines: 1,
                           style: const TextStyle(fontSize: 12),
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
+                      ),
+                      Expanded(
+                        child: Text(
+                          "Beta: ${ratio(marker.beta)}",
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
         ),
         actions: [
@@ -2443,13 +2392,6 @@ class _RebalanceChoice {
   final int? months;
 }
 
-class _ReturnShrinkageChoice {
-  const _ReturnShrinkageChoice({required this.value, required this.label});
-
-  final double value;
-  final String label;
-}
-
 enum _EvaluationType { inSampleHindsight, rollingWalkForward }
 
 class _ChartMarker {
@@ -2459,6 +2401,9 @@ class _ChartMarker {
     required this.label,
     required this.color,
     required this.evaluationType,
+    required this.sharpe,
+    required this.alpha,
+    required this.beta,
   });
 
   final double x;
@@ -2466,4 +2411,7 @@ class _ChartMarker {
   final String label;
   final Color color;
   final _EvaluationType evaluationType;
+  final double? sharpe;
+  final double? alpha;
+  final double? beta;
 }

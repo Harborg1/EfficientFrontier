@@ -15,6 +15,8 @@ def _price_table() -> pd.DataFrame:
         {
             "AAPL": 100.0 * np.exp(0.0004 * step) * (1.0 + 0.01 * np.sin(step / 9.0)),
             "MSFT": 90.0 * np.exp(0.0003 * step) * (1.0 + 0.008 * np.cos(step / 11.0)),
+            "SPY": 110.0 * np.exp(0.00025 * step) * (1.0 + 0.006 * np.sin(step / 13.0)),
+            "^IRX": np.full(len(dates), 4.0),
         },
         index=dates,
     )
@@ -161,6 +163,10 @@ class RollingMethodologyTests(unittest.IsolatedAsyncioTestCase):
             result["summary"]["max_sharpe"]["weights"],
             {"AAPL": 0.5, "MSFT": 0.5},
         )
+        for portfolio_key in api.OBJECTIVE_KEYS:
+            self.assertIn("sharpe", result["summary"][portfolio_key])
+            self.assertIn("alpha", result["summary"][portfolio_key])
+            self.assertIn("beta", result["summary"][portfolio_key])
 
     async def test_report_start_filters_summary_without_shifting_strategy_start(self):
         request = api.RollingBacktestRequest(
@@ -201,6 +207,49 @@ class RollingMethodologyTests(unittest.IsolatedAsyncioTestCase):
             len(result["summary"]["max_sharpe"]["equity_curve"]),
             len(expected_report_returns),
         )
+
+
+class CapmMetricTests(unittest.TestCase):
+    def test_capm_regression_recovers_known_alpha_and_beta(self):
+        dates = pd.bdate_range("2024-01-01", periods=120)
+        risk_free_daily = pd.Series(0.0001, index=dates)
+        market_excess = pd.Series(
+            0.001 * np.sin(np.arange(len(dates)) / 5.0),
+            index=dates,
+        )
+        expected_alpha_daily = 0.0002
+        expected_beta = 1.35
+        market_daily = risk_free_daily + market_excess
+        portfolio_daily = (
+            risk_free_daily
+            + expected_alpha_daily
+            + expected_beta * market_excess
+        )
+
+        metrics = api._capm_metrics(
+            portfolio_daily,
+            market_daily,
+            risk_free_daily,
+        )
+
+        self.assertAlmostEqual(metrics["alpha"], expected_alpha_daily * 252)
+        self.assertAlmostEqual(metrics["beta"], expected_beta)
+        self.assertTrue(np.isfinite(metrics["sharpe"]))
+
+    def test_irx_yield_is_converted_to_a_daily_rate(self):
+        dates = pd.bdate_range("2024-01-01", periods=3)
+        prices = pd.DataFrame(
+            {
+                "SPY": [100.0, 101.0, 102.0],
+                "^IRX": [5.0, 5.0, 5.0],
+            },
+            index=dates,
+        )
+
+        _, risk_free_daily = api._factor_returns(prices)
+
+        expected = (1.05 ** (1 / 252)) - 1
+        self.assertTrue(np.allclose(risk_free_daily.to_numpy(), expected))
 
 
 if __name__ == "__main__":
