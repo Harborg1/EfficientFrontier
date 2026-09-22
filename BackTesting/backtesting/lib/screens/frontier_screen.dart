@@ -15,6 +15,8 @@ class FrontierScreen extends StatefulWidget {
 }
 
 class _FrontierScreenState extends State<FrontierScreen> {
+  static const Color _spyColor = Color(0xFFFF8C00);
+
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -1381,7 +1383,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         _markerFromPortfolio(
           portfolio: spyBenchmark!,
           label: 'SPY',
-          color: Colors.green,
+          color: _spyColor,
           evaluationType: _EvaluationType.inSampleHindsight,
         ),
       );
@@ -2032,7 +2034,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
               _objectiveLegendItem(Colors.red, "SHA", "Max Sharpe"),
               _objectiveLegendItem(Colors.blue, "VAR", "Min Volatility"),
               _objectiveLegendItem(Colors.purple, "SOR", "Max Sortino"),
-              _objectiveLegendItem(Colors.green, "SPY", "Benchmark"),
+              _objectiveLegendItem(_spyColor, "SPY", "Benchmark"),
             ],
           ),
           const SizedBox(height: 7),
