@@ -85,6 +85,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
   Map<String, dynamic>? maxSharpe;
   Map<String, dynamic>? minVol;
   Map<String, dynamic>? maxSortino;
+  Map<String, dynamic>? spyBenchmark;
   List<Map<String, dynamic>> rebalanceRuns = [];
   Map<String, dynamic>? rebalanceSummary;
   Map<String, dynamic>? nextAllocations;
@@ -413,6 +414,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
         maxSharpe = data['max_sharpe'];
         minVol = data['min_vol'];
         maxSortino = data['max_sortino'];
+        spyBenchmark = data['benchmark'] is Map
+            ? Map<String, dynamic>.from(data['benchmark'] as Map)
+            : null;
         rebalanceRuns = rollingRuns;
         rebalanceSummary = rollingSummary;
         nextAllocations = rollingNextAllocations;
@@ -1309,6 +1313,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       sharpe: _portfolioMetric(portfolio, 'sharpe'),
       alpha: _portfolioMetric(portfolio, 'alpha'),
       beta: _portfolioMetric(portfolio, 'beta'),
+      cagr: _portfolioMetric(portfolio, 'cagr'),
       maxDrawdown: _portfolioMetric(portfolio, 'max_drawdown'),
     );
   }
@@ -1333,6 +1338,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       sharpe: _portfolioMetric(summary, 'sharpe'),
       alpha: _portfolioMetric(summary, 'alpha'),
       beta: _portfolioMetric(summary, 'beta'),
+      cagr: _portfolioMetric(summary, 'cagr'),
       maxDrawdown: _portfolioMetric(summary, 'max_drawdown'),
     );
   }
@@ -1366,6 +1372,16 @@ class _FrontierScreenState extends State<FrontierScreen> {
           portfolio: maxSortino!,
           label: 'SOR-IS',
           color: Colors.purple,
+          evaluationType: _EvaluationType.inSampleHindsight,
+        ),
+      );
+    }
+    if (spyBenchmark != null) {
+      markers.add(
+        _markerFromPortfolio(
+          portfolio: spyBenchmark!,
+          label: 'SPY',
+          color: Colors.green,
           evaluationType: _EvaluationType.inSampleHindsight,
         ),
       );
@@ -2016,6 +2032,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
               _objectiveLegendItem(Colors.red, "SHA", "Max Sharpe"),
               _objectiveLegendItem(Colors.blue, "VAR", "Min Volatility"),
               _objectiveLegendItem(Colors.purple, "SOR", "Max Sortino"),
+              _objectiveLegendItem(Colors.green, "SPY", "Benchmark"),
             ],
           ),
           const SizedBox(height: 7),
@@ -2111,7 +2128,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         content: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: 740,
+            width: 860,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(
@@ -2155,6 +2172,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
                       Expanded(
                         child: Text(
                           "Beta: ${ratio(marker.beta)}",
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          "CAGR: ${percentage(marker.cagr)}",
                           maxLines: 1,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -2401,6 +2425,7 @@ class _ChartMarker {
     required this.sharpe,
     required this.alpha,
     required this.beta,
+    required this.cagr,
     required this.maxDrawdown,
   });
 
@@ -2412,5 +2437,6 @@ class _ChartMarker {
   final double? sharpe;
   final double? alpha;
   final double? beta;
+  final double? cagr;
   final double? maxDrawdown;
 }

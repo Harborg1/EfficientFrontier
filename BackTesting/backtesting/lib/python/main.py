@@ -411,7 +411,35 @@ def _optimize_from_returns(
             result[portfolio_key].update(
                 _capm_metrics(portfolio_daily, market_daily, risk_free_daily)
             )
-            result[portfolio_key]["max_drawdown"] = _max_drawdown(portfolio_daily)
+            performance_stats = _performance_stats_from_daily(portfolio_daily)
+            result[portfolio_key]["cagr"] = performance_stats["cagr"]
+            result[portfolio_key]["max_drawdown"] = performance_stats["max_drawdown"]
+
+        benchmark_daily = market_daily.reindex(returns_daily.index).dropna()
+        if benchmark_daily.empty:
+            raise ValueError("No SPY observations aligned with the optimization period.")
+
+        benchmark_stats = _performance_stats_from_daily(benchmark_daily)
+        benchmark_capm = _capm_metrics(
+            benchmark_daily,
+            market_daily,
+            risk_free_daily,
+        )
+        result["benchmark"] = {
+            "ticker": MARKET_TICKER,
+            "x": benchmark_stats["volatility"],
+            "y": benchmark_stats["annualized_return"],
+            "return": benchmark_stats["annualized_return"],
+            "annualized_return": benchmark_stats["annualized_return"],
+            "cagr": benchmark_stats["cagr"],
+            "total_return": benchmark_stats["total_return"],
+            "volatility": benchmark_stats["volatility"],
+            "sharpe": benchmark_capm["sharpe"],
+            "alpha": benchmark_capm["alpha"],
+            "beta": benchmark_capm["beta"],
+            "sortino": benchmark_stats["sortino"],
+            "max_drawdown": benchmark_stats["max_drawdown"],
+        }
 
     return result
 
