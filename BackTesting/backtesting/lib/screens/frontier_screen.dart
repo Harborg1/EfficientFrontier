@@ -20,38 +20,6 @@ class _FrontierScreenState extends State<FrontierScreen> {
   // --- STATE VARIABLES ---
   final TextEditingController _tickerController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  final List<String> _tickerUniverse = [
-    "AAPL",
-    "MSFT",
-    "GOOGL",
-    "AMZN",
-    "META",
-    "TSLA",
-    "NVDA",
-    "BRK-B",
-    "JPM",
-    "V",
-    "JNJ",
-    "WMT",
-    "PG",
-    "MA",
-    "UNH",
-    "HD",
-    "DIS",
-    "BAC",
-    "VZ",
-    "KO",
-    "PFE",
-    "INTC",
-    "CMCSA",
-    "NFLX",
-    "ADBE",
-    "T",
-    "ABT",
-    "PEP",
-    "XOM",
-    "CSCO",
-  ];
 
   List<String> selectedTickers = [
     'AAPL',
@@ -68,6 +36,16 @@ class _FrontierScreenState extends State<FrontierScreen> {
   double _selectedMaxWeight = 0.30;
   int _selectedPortfolios = 20000;
   String _selectedTimeframe = '5 YR';
+  DateTime _customEvaluationStartDate = DateTime(
+    DateTime.now().year - 6,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+  DateTime _customEvaluationEndDate = DateTime(
+    DateTime.now().year - 1,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
 
   final List<double> _weightOptions = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
   final List<int> _portfolioOptions = [20000, 40000, 70000, 100000];
@@ -81,7 +59,13 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
   String _selectedRebalanceCode = 'skip';
   int _customRebalanceMonths = 9;
-  final List<String> _timeframeOptions = ['1 YR', '3 YR', '5 YR', '10 YR'];
+  final List<String> _timeframeOptions = [
+    '1 YR',
+    '3 YR',
+    '5 YR',
+    '10 YR',
+    'CUSTOM',
+  ];
 
   List<ScatterSpot> scatterSpots = [];
   Map<String, dynamic>? maxSharpe;
@@ -177,6 +161,36 @@ class _FrontierScreenState extends State<FrontierScreen> {
     if (timeframe.startsWith('3')) return 3;
     if (timeframe.startsWith('10')) return 10;
     return 5;
+  }
+
+  DateTimeRange _selectedEvaluationRange() {
+    if (_selectedTimeframe == 'CUSTOM') {
+      return DateTimeRange(
+        start: _customEvaluationStartDate,
+        end: _customEvaluationEndDate,
+      );
+    }
+
+    final today = DateTime.now();
+    final endDate = DateTime(today.year - 1, today.month, today.day);
+    final lookbackYears = _lookbackYearsForTimeframe(_selectedTimeframe);
+    return DateTimeRange(
+      start: DateTime(
+        endDate.year - lookbackYears,
+        endDate.month,
+        endDate.day,
+      ),
+      end: endDate,
+    );
+  }
+
+  int _lookbackYearsForRange(DateTimeRange range) {
+    if (_selectedTimeframe != 'CUSTOM') {
+      return _lookbackYearsForTimeframe(_selectedTimeframe);
+    }
+
+    final approximateYears = range.duration.inDays / 365.2425;
+    return max(1, min(100, approximateYears.round()));
   }
 
   int? get _selectedRebalanceMonths {
@@ -295,6 +309,16 @@ class _FrontierScreenState extends State<FrontierScreen> {
       );
       return;
     }
+
+    final evaluationRange = _selectedEvaluationRange();
+    if (!evaluationRange.end.isAfter(evaluationRange.start)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Evaluation end date must be after the start date."),
+        ),
+      );
+      return;
+    }
     if (selectedTickers.length * _selectedMaxWeight < 1.0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -316,31 +340,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       rebalanceError = null;
     });
 
-    final today = DateTime.now();
-    final endDate = DateTime(today.year - 1, today.month, today.day);
-    DateTime startDate;
-    switch (_selectedTimeframe) {
-      case '1 YR':
-        startDate = DateTime(endDate.year - 1, endDate.month, endDate.day);
-        break;
-      case '3 YR':
-        startDate = DateTime(endDate.year - 3, endDate.month, endDate.day);
-        break;
-      case '10 YR':
-        startDate = DateTime(endDate.year - 10, endDate.month, endDate.day);
-        break;
-      case '5 YR':
-      default:
-        startDate = DateTime(endDate.year - 5, endDate.month, endDate.day);
-        break;
-    }
-
-    final lookbackYears = _lookbackYearsForTimeframe(_selectedTimeframe);
-    startDate = DateTime(
-      endDate.year - lookbackYears,
-      endDate.month,
-      endDate.day,
-    );
+    final startDate = evaluationRange.start;
+    final endDate = evaluationRange.end;
+    final lookbackYears = _lookbackYearsForRange(evaluationRange);
 
     try {
       final data = await _requestOptimization(
@@ -465,6 +467,37 @@ class _FrontierScreenState extends State<FrontierScreen> {
           customEndDate = picked;
       });
     }
+  }
+
+  Future<void> _selectEvaluationDate(bool isStart) async {
+    final firstDate = isStart
+        ? DateTime(2000)
+        : _customEvaluationStartDate.add(const Duration(days: 1));
+    final lastDate = isStart
+        ? _customEvaluationEndDate.subtract(const Duration(days: 1))
+        : DateUtils.dateOnly(DateTime.now());
+    final selectedDate = isStart
+        ? _customEvaluationStartDate
+        : _customEvaluationEndDate;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      helpText: isStart
+          ? "Select evaluation start date"
+          : "Select evaluation end date",
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      if (isStart) {
+        _customEvaluationStartDate = picked;
+      } else {
+        _customEvaluationEndDate = picked;
+      }
+    });
   }
 
   // --- GEM LOGIK (Manuel Portefølje) ---
@@ -890,6 +923,10 @@ class _FrontierScreenState extends State<FrontierScreen> {
                 _buildTickerArea(),
                 const SizedBox(height: 15),
                 _buildSettingsRow(),
+                if (_selectedTimeframe == 'CUSTOM') ...[
+                  const SizedBox(height: 2),
+                  _buildCustomEvaluationPeriod(isWide),
+                ],
                 const SizedBox(height: 10),
                 _buildRebalanceSettings(isWide),
                 const SizedBox(height: 10),
@@ -1451,102 +1488,41 @@ class _FrontierScreenState extends State<FrontierScreen> {
     return labels;
   }
 
+  void _addTicker() {
+    final ticker = _tickerController.text.toUpperCase().trim();
+    if (ticker.isEmpty) return;
+
+    if (!selectedTickers.contains(ticker)) {
+      setState(() {
+        selectedTickers.add(ticker);
+        _syncCustomWeights();
+        _ensureSelectedMaxWeightIsValid();
+      });
+    }
+    _tickerController.clear();
+  }
+
   Widget _buildInputSection() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: RawAutocomplete<String>(
+      child: TextField(
+        controller: _tickerController,
         focusNode: _focusNode,
-        textEditingController: _tickerController,
-        optionsBuilder: (TextEditingValue textEditingValue) {
-          final input = textEditingValue.text.toUpperCase().trim();
-          if (input.isEmpty) return const Iterable<String>.empty();
-          return _tickerUniverse.where((ticker) {
-            return ticker.contains(input) && !selectedTickers.contains(ticker);
-          });
-        },
-        onSelected: (String selection) {
-          setState(() {
-            selectedTickers.add(selection);
-            _syncCustomWeights();
-            _ensureSelectedMaxWeightIsValid();
-          });
-          _tickerController.clear();
+        textCapitalization: TextCapitalization.characters,
+        onSubmitted: (_) {
+          _addTicker();
           _focusNode.requestFocus();
         },
-        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-          return TextField(
-            controller: controller,
-            focusNode: focusNode,
-            onSubmitted: (value) {
-              if (value.isNotEmpty) {
-                final newTicker = value.toUpperCase().trim();
-                if (!selectedTickers.contains(newTicker)) {
-                  setState(() {
-                    selectedTickers.add(newTicker);
-                    _syncCustomWeights();
-                    _ensureSelectedMaxWeightIsValid();
-                    controller.clear();
-                  });
-                }
-              }
-              onFieldSubmitted();
-            },
-            decoration: InputDecoration(
-              isDense: true,
-              labelText: "Add stock symbol (e.g. NVDA)",
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.add_circle),
-                onPressed: () {
-                  if (controller.text.isNotEmpty) {
-                    final newTicker = controller.text.toUpperCase().trim();
-                    if (!selectedTickers.contains(newTicker)) {
-                      setState(() {
-                        selectedTickers.add(newTicker);
-                        _syncCustomWeights();
-                        _ensureSelectedMaxWeightIsValid();
-                        controller.clear();
-                      });
-                    }
-                  }
-                },
-              ),
-              border: const OutlineInputBorder(),
-            ),
-          );
-        },
-        optionsViewBuilder: (context, onSelected, options) {
-          return Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4.0,
-              borderRadius: BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxHeight: 200,
-                  maxWidth: 300,
-                ),
-                child: ListView.builder(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  itemCount: options.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final String option = options.elementAt(index);
-                    return InkWell(
-                      onTap: () => onSelected(option),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          option,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          );
-        },
+        decoration: InputDecoration(
+          isDense: true,
+          labelText: "Add stock symbol (e.g. NVDA)",
+          suffixIcon: IconButton(
+            tooltip: "Add stock symbol",
+            icon: const Icon(Icons.add_circle),
+            onPressed: _addTicker,
+          ),
+          border: const OutlineInputBorder(),
+        ),
       ),
     );
   }
@@ -1629,7 +1605,14 @@ class _FrontierScreenState extends State<FrontierScreen> {
               ),
               value: _selectedTimeframe,
               items: _timeframeOptions
-                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .map(
+                    (timeframe) => DropdownMenuItem(
+                      value: timeframe,
+                      child: Text(
+                        timeframe == 'CUSTOM' ? "Custom dates" : timeframe,
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (val) => setState(() => _selectedTimeframe = val!),
             ),
@@ -1654,6 +1637,70 @@ class _FrontierScreenState extends State<FrontierScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCustomEvaluationPeriod(bool isWide) {
+    Widget dateButton({required bool isStart}) {
+      final date = isStart
+          ? _customEvaluationStartDate
+          : _customEvaluationEndDate;
+      return OutlinedButton(
+        key: ValueKey(
+          isStart ? 'evaluation-start-date' : 'evaluation-end-date',
+        ),
+        onPressed: () => _selectEvaluationDate(isStart),
+        style: OutlinedButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_today_outlined, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isStart ? "Evaluation start" : "Evaluation end",
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(_formatDate(date)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+      child: isWide
+          ? Row(
+              children: [
+                Expanded(child: dateButton(isStart: true)),
+                const SizedBox(width: 8),
+                Expanded(child: dateButton(isStart: false)),
+              ],
+            )
+          : Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: dateButton(isStart: true),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: dateButton(isStart: false),
+                ),
+              ],
+            ),
     );
   }
 
