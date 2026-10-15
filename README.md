@@ -5,5 +5,3 @@ Efficient Frontier is a portfolio optimization and backtesting application built
 Try the deployed app: https://efficient-frontier.vercel.app/
 
 
-
-The results should be interpreted as historical analysis rather than financial advice. Market data quality, selected time windows, transaction costs, taxes, survivorship bias, and future regime changes can all affect real-world performance.
