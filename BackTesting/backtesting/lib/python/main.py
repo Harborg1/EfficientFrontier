@@ -519,22 +519,25 @@ def _date_label(value) -> str:
 @app.post("/portfolio-stats", dependencies=[Depends(require_firebase_user)])
 async def calculate_portfolio_stats(data: PortfolioStatsRequest):
     try:
-        # Download data for the requested period
-        df = yf.download(
-            data.tickers,
+        # Download portfolio assets together with the CAPM factors.
+        download_tickers = list(dict.fromkeys(
+            data.tickers + [MARKET_TICKER, RISK_FREE_TICKER]
+        ))
+        downloaded_data = yf.download(
+            download_tickers,
             start=data.start_date,
             end=data.end_date,
             auto_adjust=False
-        )['Adj Close']
+        )
+        price_table = _adj_close_table(downloaded_data, download_tickers)
 
-        if df.empty:
+        if price_table.empty:
             raise HTTPException(status_code=400, detail="Could not retrieve market data for the specified period")
 
-        # Handle the case where yfinance returns a Series instead of a DataFrame (if only 1 ticker is queried)
-        if isinstance(df, pd.Series):
-            df = df.to_frame(name=data.tickers[0])
-
-        returns = df.pct_change().dropna()
+        asset_prices = price_table[
+            [ticker for ticker in data.tickers if ticker in price_table.columns]
+        ].dropna()
+        returns = asset_prices.pct_change(fill_method=None).dropna()
         valid_tickers = [t for t in data.tickers if t in returns.columns]
 
         if not valid_tickers:
@@ -558,6 +561,13 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
         downside_std = port_daily[port_daily < 0].std()
         sortino = (port_daily.mean() / downside_std) * np.sqrt(252) if downside_std != 0 and not np.isnan(downside_std) else 0
 
+        market_daily, risk_free_daily = _factor_returns(price_table)
+        capm_metrics = _capm_metrics(
+            port_daily,
+            market_daily,
+            risk_free_daily,
+        )
+
         # Calculate CAGR (Compound Annual Growth Rate) as an alternative metric
         years = len(port_daily) / 252
         cagr = ((port_cum_value.iloc[-1] / 1.0) ** (1 / years) - 1) * 100 if years > 0 else 0
@@ -569,6 +579,8 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
             "annualized_return_pct": round(float(ann_return), 2),
             "annualized_volatility_pct": round(float(ann_volatility), 2),
             "sortino_ratio": round(float(sortino), 2),
+            "alpha_pct": round(float(capm_metrics["alpha"] * 100), 2),
+            "beta": round(float(capm_metrics["beta"]), 4),
             "cagr_pct": round(float(cagr), 2)
         }
 

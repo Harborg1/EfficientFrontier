@@ -549,6 +549,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
       double annualReturn = 0.0;
       double annualVolatility = 0.0;
       double sortinoRatio = 0.0;
+      double alpha = 0.0;
+      double beta = 0.0;
+      double cagr = 0.0;
 
       final url = Uri.parse(
         'https://efficientfrontier.onrender.com/portfolio-stats',
@@ -570,6 +573,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
         annualVolatility =
             (stats['annualized_volatility_pct'] as num).toDouble() / 100;
         sortinoRatio = (stats['sortino_ratio'] as num?)?.toDouble() ?? 0.0;
+        alpha = (stats['alpha_pct'] as num).toDouble() / 100;
+        beta = (stats['beta'] as num).toDouble();
+        cagr = (stats['cagr_pct'] as num).toDouble() / 100;
       } else {
         print("Kunne ikke hente stats fra backend. Gemmer portefølje med 0.0");
       }
@@ -581,6 +587,9 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'return': annualReturn,
         'volatility': annualVolatility,
         'sortino': sortinoRatio,
+        'alpha': alpha,
+        'beta': beta,
+        'cagr': cagr,
         'weights': normalizedWeights,
         'train_start_date': startStr,
         'train_end_date': endStr,
@@ -589,7 +598,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Manual portfolio saved with return and volatility!"),
+          content: Text("Manual portfolio saved with performance metrics!"),
         ),
       );
 
