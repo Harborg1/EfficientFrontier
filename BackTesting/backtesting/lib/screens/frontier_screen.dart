@@ -548,6 +548,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
       // 1. Hent afkast og volatilitet lydløst fra backenden
       double annualReturn = 0.0;
       double annualVolatility = 0.0;
+      double? sharpeRatio;
       double sortinoRatio = 0.0;
       double alpha = 0.0;
       double beta = 0.0;
@@ -572,6 +573,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         annualReturn = (stats['annualized_return_pct'] as num).toDouble() / 100;
         annualVolatility =
             (stats['annualized_volatility_pct'] as num).toDouble() / 100;
+        sharpeRatio = (stats['sharpe_ratio'] as num?)?.toDouble();
         sortinoRatio = (stats['sortino_ratio'] as num?)?.toDouble() ?? 0.0;
         alpha = (stats['alpha_pct'] as num).toDouble() / 100;
         beta = (stats['beta'] as num).toDouble();
@@ -586,6 +588,7 @@ class _FrontierScreenState extends State<FrontierScreen> {
         'tickers': List.from(selectedTickers),
         'return': annualReturn,
         'volatility': annualVolatility,
+        if (sharpeRatio != null) 'sharpe': sharpeRatio,
         'sortino': sortinoRatio,
         'alpha': alpha,
         'beta': beta,

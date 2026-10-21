@@ -151,6 +151,7 @@ class SavedPortfoliosScreen extends StatelessWidget {
       (key: 'cagr', label: 'CAGR', isPercentage: true),
       (key: 'alpha', label: 'Alpha', isPercentage: true),
       (key: 'beta', label: 'Beta', isPercentage: false),
+      (key: 'sharpe', label: 'Sharpe', isPercentage: false),
       (key: 'sortino', label: 'Sortino', isPercentage: false),
     ];
 

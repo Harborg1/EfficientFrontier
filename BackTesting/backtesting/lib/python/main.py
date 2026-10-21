@@ -578,6 +578,7 @@ async def calculate_portfolio_stats(data: PortfolioStatsRequest):
             "valid_tickers": valid_tickers,
             "annualized_return_pct": round(float(ann_return), 2),
             "annualized_volatility_pct": round(float(ann_volatility), 2),
+            "sharpe_ratio": round(float(capm_metrics["sharpe"]), 2),
             "sortino_ratio": round(float(sortino), 2),
             "alpha_pct": round(float(capm_metrics["alpha"] * 100), 2),
             "beta": round(float(capm_metrics["beta"]), 4),
